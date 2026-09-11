@@ -12,6 +12,11 @@ import net.minecraft.world.entity.Entity;
 /**
  * Loader view of the play-phase custom payload APIs. Features never call this directly - use
  * {@code dev.riftal.creator.core.net.Payloads}.
+ *
+ * <p>Contract for implementations: the three {@code sendTo*} methods must skip any player that
+ * cannot receive the payload - no connection, or no negotiated channel for it - instead of
+ * throwing. Callers are feature tick and scheduler code for which one unreachable player is not an
+ * error.
  */
 public interface INetworkHelper {
 

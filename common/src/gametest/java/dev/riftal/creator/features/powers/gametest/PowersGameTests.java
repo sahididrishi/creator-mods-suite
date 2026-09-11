@@ -1,6 +1,5 @@
 package dev.riftal.creator.features.powers.gametest;
 
-import com.mojang.authlib.GameProfile;
 import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.features.powers.PowersFeature;
 import dev.riftal.creator.features.powers.ability.Ability;
@@ -11,7 +10,6 @@ import dev.riftal.creator.features.powers.effect.ActiveEffects;
 import dev.riftal.creator.features.powers.server.PowerManager;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffects;
@@ -32,24 +30,33 @@ import java.util.UUID;
  *
  * <p>Add a {@code public static void name(GameTestHelper helper)} here, then one annotated stub in
  * {@code fabric/src/gametest/java/.../PowersFabricGameTests.java} and one in
- * {@code neoforge/src/main/java/.../PowersNeoForgeGameTests.java}.
+ * {@code neoforge/src/gametest/java/.../PowersNeoForgeGameTests.java}.
  *
  * <h2>The test player</h2>
- * Abilities take a {@link ServerPlayer}, and {@code GameTestHelper#makeMockPlayer} hands out a
- * plain {@code Player}. These tests therefore build a {@code ServerPlayer} directly and
- * <em>deliberately do not put it in the player list</em>:
+ * Abilities take a {@link ServerPlayer} and {@code GameTestHelper#makeMockPlayer} only hands out a
+ * plain {@code Player}, so these tests use {@code GameTestHelper#makeMockServerPlayerInLevel()}:
+ * it puts a {@code Connection} on an {@code EmbeddedChannel} and runs the player through
+ * {@code PlayerList#placeNewPlayer}, which is what leaves {@code player.connection} non-null.
  *
- * <ul>
- *   <li>{@code placeNewPlayer} would run every other feature's join logic inside this feature's
- *       test, which is somebody else's failure showing up here;</li>
- *   <li>its {@code connection} stays null, so the S2C HUD mirrors are skipped - on NeoForge,
- *       sending a modded payload down a connection that never negotiated the channel throws
- *       ({@code NetworkRegistry#checkPacket}).</li>
- * </ul>
+ * <p>That connection is not optional, and an earlier revision of this file was wrong to build a
+ * detached {@code ServerPlayer} and claim the null connection was harmless. Ordinary vanilla API
+ * talks to it with no null check: {@code LivingEntity#addEffect} routes through
+ * {@code ServerPlayer#onEffectAdded}, whose second line is
+ * {@code this.connection.send(new ClientboundUpdateMobEffectPacket(...))}. A detached player
+ * therefore cannot survive Shield Dome handing out Resistance II. The feature's <em>own</em> S2C
+ * mirrors stay guarded inside {@code PowerManager#send}, because NeoForge still refuses a modded
+ * payload on a channel this synthetic connection never negotiated.
  *
- * Everything the server side of this feature actually decides - grants, cooldowns, damage gates,
- * velocities, freezing - is independent of that, which is the point of keeping the client mirror a
- * one-way broadcast.
+ * <p>Every test hands its player back with {@link #release} so the player list does not collect
+ * one mock per test.
+ *
+ * <h2>Coordinates</h2>
+ * {@code GameTestHelper#spawn} and {@code #spawnWithNoFreeWill} take <em>structure-relative</em>
+ * positions and call {@code absoluteVec} on them internally. Handing them an already-absolute
+ * vector transforms it twice and drops the entity millions of blocks from the arena, where no
+ * ability can find it - which is exactly what used to make every area-effect test here look like a
+ * broken ability. {@code Entity#moveTo} is the opposite: it wants absolute coordinates, so the
+ * player position is the one place {@code helper.absoluteVec} is called by hand.
  */
 public final class PowersGameTests {
 
@@ -68,25 +75,41 @@ public final class PowersGameTests {
     }
 
     /**
-     * A live {@code ServerPlayer} standing at a structure-relative position, outside the player
-     * list. See the class javadoc for why.
+     * A live {@code ServerPlayer} with a working connection, standing at a structure-relative
+     * position. See the class javadoc for why the connection matters.
      */
     private static ServerPlayer testPlayer(GameTestHelper helper, double x, double z, float yRot) {
-        ServerLevel level = helper.getLevel();
-        ServerPlayer player = new ServerPlayer(level.getServer(), level,
-                new GameProfile(UUID.randomUUID(), "creator-powers-test"),
-                ClientInformation.createDefault());
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
         Vec3 pos = helper.absoluteVec(new Vec3(x, FLOOR_Y, z));
-        player.setPos(pos.x, pos.y, pos.z);
-        player.setYRot(yRot);
-        player.setXRot(0.0F);
+        player.moveTo(pos.x, pos.y, pos.z, yRot, 0.0F);
+        player.setYHeadRot(yRot);
+        player.setDeltaMovement(Vec3.ZERO);
+        player.fallDistance = 0.0F;
         player.setOnGround(true);
         PowerManager.data().set(player, PlayerPowers.EMPTY);
         return player;
     }
 
+    /** Drops everything the test left on the player and takes the mock back out of the server. */
+    private static void release(GameTestHelper helper, ServerPlayer player) {
+        ActiveEffects.clearFor(player);
+        helper.getLevel().getServer().getPlayerList().remove(player);
+    }
+
+    /**
+     * A zombie at a structure-relative position. The coordinates stay relative: the helper does the
+     * {@code absoluteVec} itself.
+     *
+     * <p><b>Every test that calls this must call {@code helper.setNight()} first.</b>
+     * {@code creator_powers:empty} has no roof, the GameTest world starts at day, and
+     * {@code Zombie#aiStep} runs its {@code isSunBurnTick()} check even on a {@code NoAI} mob -
+     * {@code LivingEntity#tick} calls {@code aiStep()} unconditionally, only {@code serverAiStep}
+     * is gated by {@code isNoAi()}. A sun-burnt zombie sets {@code isOnFire()} and bleeds health
+     * on its own, which turns any fire or health assertion here into a coin flip. Same convention
+     * as {@code ArsenalGameTests}.
+     */
     private static Zombie zombieAt(GameTestHelper helper, double x, double z) {
-        return helper.spawnWithNoFreeWill(EntityType.ZOMBIE, helper.absoluteVec(new Vec3(x, FLOOR_Y, z)));
+        return helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new Vec3(x, FLOOR_Y, z));
     }
 
     // ------------------------------------------------------------------ tests
@@ -114,6 +137,7 @@ public final class PowersGameTests {
 
         helper.assertTrue(PowerManager.clear(player) == 2, "clear should report both slots");
         helper.assertTrue(PowerManager.powersOf(player).granted().isEmpty(), "clear should empty the HUD");
+        release(helper, player);
         helper.succeed();
     }
 
@@ -156,6 +180,7 @@ public final class PowersGameTests {
             PowerManager.resetCooldowns(player, dash);
             helper.assertTrue(PowerManager.powersOf(player).isReady(dashId, now),
                     "/power cooldown reset should make it usable immediately");
+            release(helper, player);
             helper.succeed();
         });
     }
@@ -184,11 +209,13 @@ public final class PowersGameTests {
                 "fall damage must still land - the dash is not a free descent");
         helper.assertFalse(ActiveEffects.dashInvulnerable(id, now + 8L),
                 "the window is 8 ticks, not permanent");
+        release(helper, player);
         helper.succeed();
     }
 
     /** Fire Burst: 7 m / 70 degree cone, so what is behind the player is untouched. */
     public static void fireBurstBurnsOnlyWhatIsInTheCone(GameTestHelper helper) {
+        helper.setNight();
         ServerPlayer player = testPlayer(helper, 4.5D, 4.5D, FACING_EAST);
         Zombie inCone = zombieAt(helper, 7.5D, 4.5D);
         Zombie behind = zombieAt(helper, 1.5D, 4.5D);
@@ -203,12 +230,14 @@ public final class PowersGameTests {
             helper.assertFalse(behind.isOnFire(), "the zombie behind the player must not catch fire");
             helper.assertTrue(behind.getHealth() == behind.getMaxHealth(),
                     "the zombie behind the player must take nothing");
+            release(helper, player);
             helper.succeed();
         });
     }
 
     /** Ender Pull: the raycast finds the target and the target ends up closer. */
     public static void enderPullDragsTheTargetTowardsThePlayer(GameTestHelper helper) {
+        helper.setNight();
         ServerPlayer player = testPlayer(helper, 1.5D, 4.5D, FACING_EAST);
         Zombie target = zombieAt(helper, 7.5D, 4.5D);
         double startX = target.getX();
@@ -224,6 +253,7 @@ public final class PowersGameTests {
             helper.assertTrue(target.getX() < startX - 1.0D,
                     "the target should have travelled at least a block towards the player, moved "
                             + (startX - target.getX()));
+            release(helper, player);
             helper.succeed();
         });
     }
@@ -239,15 +269,17 @@ public final class PowersGameTests {
                 "the use should be refused");
         helper.assertTrue(PowerManager.powersOf(player).isReady(pull.id(), helper.getLevel().getGameTime()),
                 "a refused use must not burn the cooldown");
+        release(helper, player);
         helper.succeed();
     }
 
     /** Mob Freeze: hostiles only, and everything it touched is handed back exactly as it was found. */
     public static void mobFreezeHoldsHostilesAndThawsThem(GameTestHelper helper) {
+        helper.setNight();
         ServerPlayer player = testPlayer(helper, 4.5D, 4.5D, FACING_EAST);
         Zombie one = zombieAt(helper, 2.5D, 2.5D);
         Zombie two = zombieAt(helper, 6.5D, 6.5D);
-        Cow cow = helper.spawn(EntityType.COW, helper.absoluteVec(new Vec3(6.5D, FLOOR_Y, 2.5D)));
+        Cow cow = helper.spawn(EntityType.COW, new Vec3(6.5D, FLOOR_Y, 2.5D));
 
         helper.assertTrue(PowerManager.forceUse(player, ability("mob_freeze")) == UseResult.ACTIVATED,
                 "freeze should fire");
@@ -270,12 +302,14 @@ public final class PowersGameTests {
                         "the crash-recovery tag should be gone");
                 helper.assertFalse(ActiveEffects.isFrozen(mob.getUUID()), "and the mob untracked");
             }
+            release(helper, player);
             helper.succeed();
         });
     }
 
     /** Ground Pound refuses on the ground, and its shockwave damages and throws what it lands on. */
     public static void groundPoundNeedsAirAndItsShockwaveThrowsMobs(GameTestHelper helper) {
+        helper.setNight();
         ServerLevel level = helper.getLevel();
         ServerPlayer player = testPlayer(helper, 4.5D, 4.5D, FACING_EAST);
         Ability pound = ability("ground_pound");
@@ -301,6 +335,7 @@ public final class PowersGameTests {
         }
         helper.assertTrue(near.getHealth() < far.getHealth() + 8.0F,
                 "damage falls off with distance from the epicentre");
+        release(helper, player);
         helper.succeed();
     }
 
@@ -328,11 +363,12 @@ public final class PowersGameTests {
                         level.damageSources().generic(), now),
                 "contact damage still lands - the dome is cover, not invulnerability");
 
-        Arrow arrow = helper.spawn(EntityType.ARROW, helper.absoluteVec(new Vec3(7.5D, 3.0D, 4.5D)));
+        Arrow arrow = helper.spawn(EntityType.ARROW, new Vec3(7.5D, 3.0D, 4.5D));
         arrow.setDeltaMovement(new Vec3(-0.6D, 0.0D, 0.0D));
 
         helper.runAfterDelay(3L, () -> {
             helper.assertTrue(arrow.isRemoved(), "an arrow flying into the dome should be voided");
+            release(helper, player);
             helper.succeed();
         });
     }
@@ -359,6 +395,7 @@ public final class PowersGameTests {
             helper.assertFalse(ActiveEffects.shouldCancelDamage(player,
                             helper.getLevel().damageSources().explosion(null, null), now),
                     "and explosions should hurt again");
+            release(helper, player);
             helper.succeed();
         });
     }

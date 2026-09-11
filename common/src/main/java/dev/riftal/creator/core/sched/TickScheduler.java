@@ -18,14 +18,21 @@ import java.util.function.Consumer;
  * TickScheduler.cancelAll(rl("meteor"));
  * }</pre>
  *
- * <p>Semantics: exceptions are caught, logged with the owner tag and the task is cancelled - a
- * broken feature must not kill the tick loop. The queue is cleared on server stop, so nothing is
- * persisted; a feature that must survive a restart keeps its own {@code SavedData} and
- * re-schedules on load.
+ * <p>Semantics: exceptions are caught and logged with the owner tag - a broken feature must not
+ * kill the tick loop. A repeating task is <em>not</em> dropped for a single throw: it has a budget
+ * of 3 consecutive failures, reset by every run that completes, and is
+ * cancelled only once it has used the budget up. One transient failure - a player who went offline
+ * mid-send, a chunk that was not loaded this tick - must not silently disable a feature's
+ * heartbeat for the rest of the server's life, while a task that is genuinely broken still stops
+ * instead of throwing forever. The queue is cleared on server stop, so nothing is persisted; a
+ * feature that must survive a restart keeps its own {@code SavedData} and re-schedules on load.
  *
  * <p>Pure Java, so it is unit-testable without booting a game: see {@link #tickForTest(int)}.
  */
 public final class TickScheduler {
+
+    /** Consecutive throws a repeating task may take before it is cancelled. */
+    static final int FAILURE_BUDGET = 3;
 
     private static final List<ScheduledTask> TASKS = new ArrayList<>();
     private static final List<ScheduledTask> PENDING = new ArrayList<>();
@@ -123,15 +130,18 @@ public final class TickScheduler {
                 if (--task.ticksUntilRun > 0) {
                     continue;
                 }
+                Throwable failure = null;
                 try {
                     task.action.accept(task);
+                    task.consecutiveFailures = 0;
                 } catch (Throwable t) {
-                    Constants.LOG.error("Scheduled task (owner {}) threw; cancelling it",
-                            task.owner, t);
-                    task.cancelled = true;
+                    failure = t;
                 }
                 if (task.repeatsLeft > 0) {
                     task.repeatsLeft--;
+                }
+                if (failure != null) {
+                    noteFailure(task, failure);
                 }
                 if (task.cancelled || task.repeatsLeft == 0 || task.period <= 0) {
                     task.done = true;
@@ -146,6 +156,26 @@ public final class TickScheduler {
         if (!PENDING.isEmpty()) {
             TASKS.addAll(PENDING);
             PENDING.clear();
+        }
+    }
+
+    /**
+     * Logs a throw and spends one of the task's failure budget. A task that is finishing anyway -
+     * a one-shot, or the last run of a repeat - has no budget to spend, so it is only reported.
+     */
+    private static void noteFailure(ScheduledTask task, Throwable failure) {
+        if (task.cancelled || task.repeatsLeft == 0 || task.period <= 0) {
+            Constants.LOG.error("Scheduled task (owner {}) threw on its final run", task.owner, failure);
+            return;
+        }
+        task.consecutiveFailures++;
+        if (task.consecutiveFailures >= FAILURE_BUDGET) {
+            Constants.LOG.error("Scheduled task (owner {}) threw {} times in a row; cancelling it",
+                    task.owner, task.consecutiveFailures, failure);
+            task.cancelled = true;
+        } else {
+            Constants.LOG.error("Scheduled task (owner {}) threw ({} of {} allowed in a row); keeping it",
+                    task.owner, task.consecutiveFailures, FAILURE_BUDGET, failure);
         }
     }
 

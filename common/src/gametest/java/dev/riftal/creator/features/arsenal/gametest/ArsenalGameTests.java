@@ -23,6 +23,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlotGroup;
+import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -152,7 +153,8 @@ public final class ArsenalGameTests {
      */
     public static void stormArrowChargedStrikesWithoutFire(GameTestHelper helper) {
         helper.setNight();
-        Zombie victim = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(4, 1, 4));
+        BlockPos impact = new BlockPos(4, 1, 4);
+        Zombie victim = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, impact);
         float fullHealth = victim.getHealth();
 
         StormArrowEntity arrow = new StormArrowEntity(ArsenalFeature.STORM_ARROW.get(), helper.getLevel());
@@ -164,7 +166,7 @@ public final class ArsenalGameTests {
 
         boolean[] sawBolt = {false};
         helper.onEachTick(() -> {
-            if (!helper.getEntities(EntityType.LIGHTNING_BOLT).isEmpty()) {
+            if (!boltsAround(helper, impact).isEmpty()) {
                 sawBolt[0] = true;
             }
         });
@@ -183,7 +185,8 @@ public final class ArsenalGameTests {
     /** A half-drawn shot is an ordinary arrow: it hurts a little and calls nothing. */
     public static void stormArrowUnchargedNeverStrikes(GameTestHelper helper) {
         helper.setNight();
-        Zombie victim = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(4, 1, 4));
+        BlockPos impact = new BlockPos(4, 1, 4);
+        Zombie victim = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, impact);
         float fullHealth = victim.getHealth();
 
         StormArrowEntity arrow = new StormArrowEntity(ArsenalFeature.STORM_ARROW.get(), helper.getLevel());
@@ -193,14 +196,20 @@ public final class ArsenalGameTests {
         arrow.setDeltaMovement(0.0D, -1.0D, 0.0D);
         helper.getLevel().addFreshEntity(arrow);
 
-        helper.onEachTick(() -> helper.assertEntityNotPresent(EntityType.LIGHTNING_BOLT));
+        helper.onEachTick(() -> helper.assertTrue(boltsAround(helper, impact).isEmpty(),
+                "an uncharged arrow must never call a bolt"));
 
-        helper.succeedOnTickWhen(30, () -> {
+        // The arrow lands within a couple of ticks; the wait is there to prove nothing turns up
+        // late, so it is a delay and not succeedOnTickWhen - that one demands the criterion first
+        // pass on exactly its tick, which for an assertion that is already true at tick 2 is an
+        // instant "Succeeded in invalid tick".
+        helper.runAfterDelay(30L, () -> {
             helper.assertTrue(victim.getHealth() < fullHealth,
                     "the arrow should still have hit the zombie");
             helper.assertTrue(victim.getHealth() > fullHealth - DamageMath.LIGHTNING_CENTRE_DAMAGE,
                     "an uncharged arrow must not deal blast damage");
             helper.assertFalse(victim.isOnFire(), "nothing about a plain arrow burns");
+            helper.succeed();
         });
     }
 
@@ -364,15 +373,30 @@ public final class ArsenalGameTests {
             }
         });
 
+        // The reel is asserted on the velocity the server hands the player, not on the distance the
+        // player covers, and that is a property of the harness rather than a softer test. A mock
+        // GameTest player has no client and no ticking connection: ServerPlayer#doTick - the only
+        // thing that runs a player's physics, via the connection's packet tick - is never called
+        // for it, so nothing ever integrates setDeltaMovement and position() stays exactly where it
+        // was put. GrapplePull's whole job is choosing that velocity, so this checks the real
+        // output: aimed at the wall, lifted, and inside the speed cap.
         helper.succeedWhen(() -> {
             helper.assertTrue(bit[0], "the hook should have bitten the wall");
-            double travelled = helper.relativeVec(player.position()).x - start.x;
-            helper.assertTrue(travelled > 2.5D,
-                    "the pull should have dragged the player at least 2.5 blocks, but it moved " + travelled);
+            helper.assertTrue(GrappleManager.isPulling(player),
+                    "the pull task should be alive - it also runs the safe-landing window");
+
+            Vec3 velocity = player.getDeltaMovement();
+            helper.assertTrue(velocity.x > 0.3D,
+                    "the reel should be driving the player at the wall (+X), but the velocity is "
+                            + velocity);
+            helper.assertTrue(Math.abs(velocity.z) < 0.1D,
+                    "the anchor is straight ahead, so the reel should not push sideways: " + velocity);
+            helper.assertTrue(velocity.y >= DamageMath.GRAPPLE_LIFT - EPSILON,
+                    "every pull tick adds the upward nudge that clears ledges, but dy=" + velocity.y);
+            helper.assertTrue(velocity.length() <= DamageMath.GRAPPLE_MAX_SPEED + DamageMath.GRAPPLE_LIFT + EPSILON,
+                    "the pull must never exceed the speed cap, but it is " + velocity.length());
             helper.assertTrue(player.fallDistance == 0.0F,
                     "fall distance is zeroed for the whole flight so the landing is safe");
-            helper.assertTrue(GrappleManager.isPulling(player),
-                    "the pull task should still be alive - it also runs the safe-landing window");
             release(helper, player);
         });
     }
@@ -400,6 +424,21 @@ public final class ArsenalGameTests {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /**
+     * Lightning bolts near {@code around}.
+     *
+     * <p>Deliberately not {@code helper.getEntities(EntityType.LIGHTNING_BOLT)} /
+     * {@code assertEntityNotPresent}: those clip to the structure bounds, whose {@code minY} is
+     * exactly the top of the structure block - i.e. the floor an impact bolt stands on - and
+     * {@code LightningBolt} is registered {@code sized(0.0F, 0.0F)}. A zero-height box sitting on
+     * that plane fails {@code AABB#intersects}, which tests {@code maxY > other.minY} strictly, so
+     * the structure-bounds query can never see a bolt that struck the floor. A box around the
+     * impact block contains it properly.
+     */
+    private static List<LightningBolt> boltsAround(GameTestHelper helper, BlockPos around) {
+        return helper.getEntities(EntityType.LIGHTNING_BOLT, around, 4.0D);
+    }
 
     private static ServerPlayer spawnPlayer(GameTestHelper helper, Vec3 relativePos, float yRot) {
         ServerPlayer player = helper.makeMockServerPlayerInLevel();

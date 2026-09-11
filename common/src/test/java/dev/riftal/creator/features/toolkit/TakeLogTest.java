@@ -59,6 +59,32 @@ class TakeLogTest {
     }
 
     @Test
+    void reshootingATakeNumberReplacesTheOldFileInsteadOfConcatenating() throws IOException {
+        TakeState first = new TakeState(42, true, 1_700_000_000_000L, 0, 0L, List.of());
+        TakeLog discarded = TakeLog.open(serverDirectory, "world", first);
+        assertNotNull(discarded);
+        Mark blown = new Mark(1, 1_000L, 1_700_000_001_000L, 20, "Creator", "blown take");
+        discarded.mark(blown);
+        discarded.close(new TakeState(42, false, first.startEpochMs(), 0, 1_000L, List.of(blown)),
+                1_700_000_001_000L);
+
+        TakeState retake = new TakeState(42, true, 1_700_000_100_000L, 0, 0L, List.of());
+        TakeLog log = TakeLog.open(serverDirectory, "world", retake);
+        assertNotNull(log);
+        assertEquals(discarded.file(), log.file(), "the retake targets the same name");
+        Mark good = new Mark(1, 2_000L, 1_700_000_102_000L, 60, "Creator", "keeper");
+        log.mark(good);
+        log.close(new TakeState(42, false, retake.startEpochMs(), 0, 2_000L, List.of(good)),
+                1_700_000_102_000L);
+
+        List<String> lines = Files.readAllLines(log.file());
+        assertEquals(3, lines.size(), "one file is one take: header + 1 mark + footer, got " + lines);
+        assertTrue(lines.get(0).startsWith("take=42 start="), lines.get(0));
+        assertTrue(lines.get(1).contains("label=keeper"), lines.get(1));
+        assertTrue(lines.get(2).startsWith("stop="), lines.get(2));
+    }
+
+    @Test
     void anAbortedTakeRecordsItsReason() throws IOException {
         TakeState state = new TakeState(7, true, 1_700_000_000_000L, 0, 0L, List.of());
         TakeLog log = TakeLog.open(serverDirectory, "world", state);

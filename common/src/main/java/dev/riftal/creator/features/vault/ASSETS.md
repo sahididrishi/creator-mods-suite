@@ -38,21 +38,21 @@ python3 common/src/main/java/dev/riftal/creator/features/vault/tools/make_struct
 
 ## Sounds
 
-All eight are **2-channel** ffmpeg tones, because the ffmpeg on this machine has no `libvorbis` and
-ffmpeg's native `vorbis` encoder is stereo-only. **Minecraft plays stereo sounds
-non-positionally**, so these placeholders have no distance attenuation. The real replacements must
-be **mono, 44.1 kHz Ogg Vorbis**.
+All eight are **mono (1-channel), 44.1 kHz Ogg Vorbis** tones, so Minecraft gives them normal
+positional distance attenuation. ffmpeg's native `vorbis` encoder is stereo-only, so they are
+produced with `ffmpeg -ac 1 -ar 44100` piped into `oggenc` (vorbis-tools) rather than by ffmpeg
+alone — see CONTRACT.md §9.2. The real replacements must stay **mono, 44.1 kHz Ogg Vorbis**.
 
 | File | Kind | Status | What a real artist should do |
 |---|---|---|---|
-| `assets/creator_vault/sounds/altar/activate.ogg` | 1.6 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER (ffmpeg sine) | Chains snapping taut + a rising crystal hum, **mono** |
-| `assets/creator_vault/sounds/altar/unseal.ogg` | 1.1 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER | The hum collapsing, crystal dropping into its socket |
-| `assets/creator_vault/sounds/altar/reset.ogg` | 0.7 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER | A short stone-and-metal re-arm click |
-| `assets/creator_vault/sounds/chest/unseal.ogg` | 1.0 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER | Obsidian cracking, chain falling to the floor |
-| `assets/creator_vault/sounds/keeper/summon.ogg` | 1.8 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER | Floor bursting, a deep inhale |
-| `assets/creator_vault/sounds/keeper/idle.ogg` | 1.2 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER | Low grinding groan, stone on stone |
-| `assets/creator_vault/sounds/keeper/hurt.ogg` | 0.5 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER | Stone chipping, short |
-| `assets/creator_vault/sounds/keeper/death.ogg` | 2.0 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER | Collapse into rubble, hum dying out |
+| `assets/creator_vault/sounds/altar/activate.ogg` | 1.6 s Vorbis, **mono** | PROCEDURAL PLACEHOLDER (ffmpeg sine) | Chains snapping taut + a rising crystal hum, **mono** |
+| `assets/creator_vault/sounds/altar/unseal.ogg` | 1.1 s Vorbis, **mono** | PROCEDURAL PLACEHOLDER | The hum collapsing, crystal dropping into its socket |
+| `assets/creator_vault/sounds/altar/reset.ogg` | 0.7 s Vorbis, **mono** | PROCEDURAL PLACEHOLDER | A short stone-and-metal re-arm click |
+| `assets/creator_vault/sounds/chest/unseal.ogg` | 1.0 s Vorbis, **mono** | PROCEDURAL PLACEHOLDER | Obsidian cracking, chain falling to the floor |
+| `assets/creator_vault/sounds/keeper/summon.ogg` | 1.8 s Vorbis, **mono** | PROCEDURAL PLACEHOLDER | Floor bursting, a deep inhale |
+| `assets/creator_vault/sounds/keeper/idle.ogg` | 1.2 s Vorbis, **mono** | PROCEDURAL PLACEHOLDER | Low grinding groan, stone on stone |
+| `assets/creator_vault/sounds/keeper/hurt.ogg` | 0.5 s Vorbis, **mono** | PROCEDURAL PLACEHOLDER | Stone chipping, short |
+| `assets/creator_vault/sounds/keeper/death.ogg` | 2.0 s Vorbis, **mono** | PROCEDURAL PLACEHOLDER | Collapse into rubble, hum dying out |
 | `assets/creator_vault/sounds.json` | JSON | HAND-WRITTEN, FINAL |
 
 ## Structure pieces

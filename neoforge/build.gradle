@@ -3,6 +3,16 @@ plugins {
     id 'net.neoforged.moddev'
 }
 
+// Dedicated source set for GameTests so they never ship in the release jar, mirroring :fabric. The
+// loader-agnostic test bodies from :common are compiled in here too - see the `commonGametestJava`
+// wiring in buildSrc/src/main/groovy/multiloader-loader.gradle.
+sourceSets {
+    gametest {
+        compileClasspath += sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.runtimeClasspath
+    }
+}
+
 // Resolve these outside the neoForge { } closures: inside them `project(...)` resolves to the
 // dependency handler's project() method, not Project#project(String).
 def commonGenerated = project(':common').file('src/generated/resources')
@@ -23,6 +33,12 @@ neoForge {
         configureEach {
             systemProperty('neoforge.enabledGameTestNamespaces', "${mod_id},creator_toolkit,creator_colossus,creator_powers,creator_rules,creator_evolve,creator_events,creator_arsenal,creator_vault")
             ideName = "NeoForge ${it.name.capitalize()} (${project.path})" // Unify the run config names with fabric
+            // Every run resolves its classpath from the gametest source set, which carries main's
+            // classpath plus its own output. The `mods` block below lists the gametest output
+            // directory among the mod's files, and FML scans those for @GameTestHolder as soon as a
+            // namespace is enabled - which the line above does for every run - so the classes have
+            // to be loadable in every run, not only in gameTestServer.
+            sourceSet = sourceSets.gametest
         }
         client {
             client()
@@ -48,11 +64,19 @@ neoForge {
     }
     mods {
         "${mod_id}" {
+            // The gametest source set belongs to the same mod: NeoForge finds @GameTestHolder
+            // classes by scanning the mod's own files, so a separate mod here would need its own
+            // neoforge.mods.toml to be scanned at all. Dev-run only - `jar` still packages `main`
+            // alone, which is the whole point of the split.
             sourceSet sourceSets.main
+            sourceSet sourceSets.gametest
         }
     }
 }
 
 dependencies {
     implementation "software.bernie.geckolib:geckolib-neoforge-${minecraft_version}:${geckolib_version}"
+
+    // Gives the GameTest stubs the mod's own classes (and, through them, :common's) to call into.
+    gametestImplementation sourceSets.main.output
 }

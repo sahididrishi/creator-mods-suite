@@ -858,30 +858,44 @@ write_png("cursed_altar.png", SIZE, SIZE, rows)
 
 Verified output: `PNG image data, 16 x 16, 8-bit/color RGBA, non-interlaced`, 101 bytes.
 
-### 9.2 Ogg audio — ffmpeg synthesis (tested, works on this machine)
+### 9.2 Ogg audio — ffmpeg synthesis + oggenc (tested, works on this machine)
 
-Minecraft plays **Ogg Vorbis** (not Opus, not mp3, not wav). The ffmpeg on this machine is built
-**without libvorbis**, and ffmpeg's native `vorbis` encoder is stereo-only, so this is the command
-that actually works here:
+Minecraft plays **Ogg Vorbis** (not Opus, not mp3, not wav), and every sound must be **mono
+(1-channel), 44.1 kHz**. Minecraft applies 3D positional attenuation and panning **only to mono
+sounds** — a stereo `.ogg` is played flat and non-directional no matter how the code positions it.
+This is a correctness requirement, not a nicety.
+
+The ffmpeg on this machine is built **without libvorbis**, and ffmpeg's *native* `vorbis` encoder
+refuses anything but 2 channels (`Current FFmpeg Vorbis encoder only supports 2 channels`). So
+ffmpeg **cannot write the file on its own**. Synthesise with ffmpeg, encode with `oggenc`:
 
 ```bash
+# one-time: brew install vorbis-tools   (provides oggenc, links libvorbis)
+
+# 1. synthesise/decode to mono 44.1 kHz WAV with ffmpeg
 ffmpeg -v error -y -f lavfi -i "sine=frequency=220:duration=1.2" \
        -af "afade=t=out:st=0.8:d=0.4,volume=0.5" \
-       -ac 2 -ar 44100 -c:a vorbis -strict -2 -b:a 96k \
-       common/src/main/resources/assets/creator_colossus/sounds/colossus/roar.ogg
+       -ac 1 -ar 44100 -c:a pcm_s16le /tmp/tone.wav
 
-# verify what you just made
+# 2. encode to Ogg Vorbis with oggenc (this is the step that can do mono)
+oggenc -Q -q 5 -o \
+  common/src/main/resources/assets/creator_colossus/sounds/colossus/roar.ogg /tmp/tone.wav
+
+# verify what you just made — channels MUST be 1
 ffprobe -v error -show_entries stream=codec_name,channels,sample_rate \
         -show_entries format=duration -of default=nw=1 <file>.ogg
-#   codec_name=vorbis / sample_rate=44100 / channels=2 / duration=1.200181
+#   codec_name=vorbis / sample_rate=44100 / channels=1 / duration=1.200181
 ```
+
+The same two steps convert an existing stereo `.ogg`: use `-i old.ogg` in step 1.
 
 Swap `sine=frequency=…` for `anoisesrc=color=brown`, `sine=frequency=90`, chained `afade`/`atempo`/
 `aecho` filters, etc. — it is a placeholder, it only has to be the right length and not silent.
 
-**Known limitation, record it in ASSETS.md:** these placeholders are 2-channel, so Minecraft plays
-them non-positionally (no distance attenuation). The real replacement asset must be **mono,
-44.1 kHz**.
+**Do not** reach for `-c:a libopus` / the `opus` encoder to get mono: Opus in an Ogg container is
+not Vorbis and Minecraft will not load it.
+
+**Record the channel count in ASSETS.md**, and treat `channels=2` on any shipped `.ogg` as a bug.
 
 ### 9.3 `ASSETS.md` is mandatory
 
@@ -895,7 +909,7 @@ If your feature ships any texture, model or sound, it also ships
 |---|---|---|---|
 | assets/creator_vault/textures/block/cursed_altar.png | 16x16 PNG | PROCEDURAL PLACEHOLDER (tools/make_placeholder.py) | Carved obsidian altar, runes glowing on the top face |
 | assets/creator_vault/textures/item/vault_key.png | 16x16 PNG | PROCEDURAL PLACEHOLDER | Ornate brass key, 3/4 view |
-| assets/creator_vault/sounds/vault/unlock.ogg | 1.2 s Vorbis, **stereo** | PROCEDURAL PLACEHOLDER (ffmpeg sine) | Heavy tumbler + stone grind, **mono 44.1 kHz** |
+| assets/creator_vault/sounds/vault/unlock.ogg | 1.2 s Vorbis, **mono 44.1 kHz** | PROCEDURAL PLACEHOLDER (ffmpeg sine + oggenc) | Heavy tumbler + stone grind |
 | assets/creator_vault/models/block/cursed_altar.json | JSON | HAND-WRITTEN, FINAL | — |
 
 Regenerate placeholders: `python3 .../features/vault/tools/make_placeholder.py`

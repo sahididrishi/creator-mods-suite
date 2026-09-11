@@ -17,14 +17,14 @@ figure with orange crack stripes, and it is meant to look like a placeholder.
 | `assets/creator_colossus/textures/entity/ashen_colossus_enraged_glowmask.png` | 128x128 RGBA PNG | **PROCEDURAL PLACEHOLDER** | Cracks and eyes at full brightness. |
 | `assets/creator_colossus/textures/entity/ashen_minion.png` | 64x64 RGBA PNG | **PROCEDURAL PLACEHOLDER** | Warmer, browner ash than the boss so the two read apart at a distance. |
 | `assets/creator_colossus/textures/entity/ashen_minion_glowmask.png` | 64x64 RGBA PNG | **PROCEDURAL PLACEHOLDER** | Cracks and eyes only. A fully transparent sheet is also a valid answer if the minion should not glow. |
-| `assets/creator_colossus/sounds/colossus/roar.ogg` | 1.7 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (`tools/make_sounds.sh`, brown noise slowed) | Layer a lion roar over a low rumble, pitch down about 4 semitones. Length should stay near the 35-tick roar clip. **Mono, 44.1 kHz.** |
-| `assets/creator_colossus/sounds/colossus/swing.ogg` | 0.5 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (pink noise sweep) | Two tonnes of rock coming round through the air. **Mono, 44.1 kHz.** |
-| `assets/creator_colossus/sounds/colossus/slam.ogg` | 1.2 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (48 Hz sine + echo) | A low thud with a stone-crack transient on the front and a long sub tail. This is the single most important sound in the feature. **Mono, 44.1 kHz.** |
-| `assets/creator_colossus/sounds/colossus/step.ogg` | 0.35 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (70 Hz sine) | A dull stomp, quieter than the slam, playing on every footfall. **Mono, 44.1 kHz.** |
-| `assets/creator_colossus/sounds/colossus/hurt.ogg` | 0.65 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (band-passed brown noise) | Stone grinding on stone. **Mono, 44.1 kHz.** |
-| `assets/creator_colossus/sounds/colossus/death.ogg` | 3.3 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (brown noise, slowed, long fade) | The collapse: a failing roar that falls away into rubble. Should not outrun the 70-tick death clip. **Mono, 44.1 kHz.** |
-| `assets/creator_colossus/sounds/minion/hurt.ogg` | 0.35 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** | A dry crumble, brighter than the boss so the two do not mask each other. **Mono, 44.1 kHz.** |
-| `assets/creator_colossus/sounds/minion/death.ogg` | 0.8 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** | The same, falling apart. **Mono, 44.1 kHz.** |
+| `assets/creator_colossus/sounds/colossus/roar.ogg` | 1.7 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (`tools/make_sounds.sh`, brown noise slowed) | Layer a lion roar over a low rumble, pitch down about 4 semitones. Length should stay near the 35-tick roar clip. **Mono, 44.1 kHz.** |
+| `assets/creator_colossus/sounds/colossus/swing.ogg` | 0.5 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (pink noise sweep) | Two tonnes of rock coming round through the air. **Mono, 44.1 kHz.** |
+| `assets/creator_colossus/sounds/colossus/slam.ogg` | 1.2 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (48 Hz sine + echo) | A low thud with a stone-crack transient on the front and a long sub tail. This is the single most important sound in the feature. **Mono, 44.1 kHz.** |
+| `assets/creator_colossus/sounds/colossus/step.ogg` | 0.35 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (70 Hz sine) | A dull stomp, quieter than the slam, playing on every footfall. **Mono, 44.1 kHz.** |
+| `assets/creator_colossus/sounds/colossus/hurt.ogg` | 0.65 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (band-passed brown noise) | Stone grinding on stone. **Mono, 44.1 kHz.** |
+| `assets/creator_colossus/sounds/colossus/death.ogg` | 3.3 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (brown noise, slowed, long fade) | The collapse: a failing roar that falls away into rubble. Should not outrun the 70-tick death clip. **Mono, 44.1 kHz.** |
+| `assets/creator_colossus/sounds/minion/hurt.ogg` | 0.35 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** | A dry crumble, brighter than the boss so the two do not mask each other. **Mono, 44.1 kHz.** |
+| `assets/creator_colossus/sounds/minion/death.ogg` | 0.8 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** | The same, falling apart. **Mono, 44.1 kHz.** |
 | `assets/creator_colossus/sounds.json` | JSON | HAND-WRITTEN, FINAL | Eight entries, keyed exactly as the `SoundEvent`s are registered. |
 | `assets/creator_colossus/lang/en_us.json` | JSON | HAND-WRITTEN, FINAL | One line for every string the feature emits, subtitles included. |
 | `assets/creator_colossus/models/item/ashen_colossus_spawn_egg.json` | JSON | HAND-WRITTEN, FINAL | `minecraft:item/template_spawn_egg`; the colours come from code. |
@@ -34,12 +34,14 @@ figure with orange crack stripes, and it is meant to look like a placeholder.
 | `data/creator_colossus/structure/arena_24.nbt` | NBT | GENERATED, FINAL (`tools/make_arena_structure.py`) | 24x12x24 polished andesite floor. The GameTest arena — the 9x9 `empty.nbt` is smaller than the boss' own 7-block shockwave. |
 | `data/creator_colossus/structure/empty.nbt` | NBT | SHIPPED BY THE SCAFFOLD | Do not overwrite. |
 
-## Known limitation of the placeholder audio
+## Placeholder audio — channel layout
 
-All eight `.ogg` files are **2-channel**, because the ffmpeg on the build machine has no
-`libvorbis` and its native `vorbis` encoder is stereo-only. Minecraft plays stereo sounds
-**non-positionally** — no distance attenuation and no direction, which for a boss whose whole point
-is that you hear it coming is the wrong behaviour. Every replacement must be **mono, 44.1 kHz**.
+All eight `.ogg` files are **1-channel (mono), 44.1 kHz Ogg Vorbis**, so Minecraft gives them full
+3D positional attenuation and direction — which for a boss whose whole point is that you hear it
+coming is the behaviour you want. (They were briefly stereo, which Minecraft plays
+non-positionally; that is fixed.) ffmpeg's *native* `vorbis` encoder is stereo-only, so the
+conversion goes `ffmpeg -ac 1 -ar 44100` → `oggenc` (vorbis-tools); see CONTRACT.md §9.2. Every
+replacement must stay **mono, 44.1 kHz**.
 
 ## Notes for whoever produces the art
 

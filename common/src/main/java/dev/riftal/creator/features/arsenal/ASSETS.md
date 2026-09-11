@@ -15,9 +15,9 @@ camera. One palette runs through all six textures; it is documented at the top o
 | `assets/creator_arsenal/textures/item/soul_scythe.png` | 16x16 PNG | **PROCEDURAL PLACEHOLDER** | Bone snath, teal soul-fire edge, wisps curling off the blade |
 | `assets/creator_arsenal/textures/entity/grapple_hook.png` | 16x16 PNG | **PROCEDURAL PLACEHOLDER** | Three-pronged iron hook, drawn to read at ~8 px on screen (it renders as one camera-facing quad) |
 | `assets/creator_arsenal/textures/entity/projectiles/storm_arrow.png` | 32x32 PNG | **PROCEDURAL PLACEHOLDER** | Vanilla arrow layout, cyan fletching, a charged glow along the shaft. **Only two regions are ever sampled** (read out of `ArrowRenderer`): the shaft strip at pixels (0,0)–(15,4) and the fletching cross at (0,5)–(4,9). Anything drawn elsewhere is invisible. |
-| `assets/creator_arsenal/sounds/arsenal/hook_bite.ogg` | 0.30 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (`tools/make_sounds.sh`, filtered noise + damped sines) | A hook biting stone: a sharp metal tick with a short stone-scrape tail. **Mono, 44.1 kHz.** |
-| `assets/creator_arsenal/sounds/arsenal/slam_impact.ogg` | 1.30 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (descending sine + brown noise) | The hammer touchdown: a deep body-hit thud with a debris tail, no metallic ring (the vanilla anvil clang is layered over it in code). **Mono, 44.1 kHz.** |
-| `assets/creator_arsenal/sounds/arsenal/soul_absorb.ogg` | 0.45 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (rising sine pair) | A soul being swallowed: a short breathy rise with a glassy top. **Mono, 44.1 kHz.** |
+| `assets/creator_arsenal/sounds/arsenal/hook_bite.ogg` | 0.30 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (`tools/make_sounds.sh`, filtered noise + damped sines) | A hook biting stone: a sharp metal tick with a short stone-scrape tail. **Mono, 44.1 kHz.** |
+| `assets/creator_arsenal/sounds/arsenal/slam_impact.ogg` | 1.30 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (descending sine + brown noise) | The hammer touchdown: a deep body-hit thud with a debris tail, no metallic ring (the vanilla anvil clang is layered over it in code). **Mono, 44.1 kHz.** |
+| `assets/creator_arsenal/sounds/arsenal/soul_absorb.ogg` | 0.45 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (rising sine pair) | A soul being swallowed: a short breathy rise with a glassy top. **Mono, 44.1 kHz.** |
 | `assets/creator_arsenal/sounds.json` | JSON | HAND-WRITTEN, FINAL | — |
 | `assets/creator_arsenal/models/item/grapple_blade.json` | JSON | HAND-WRITTEN, FINAL | — |
 | `assets/creator_arsenal/models/item/gravity_hammer.json` | JSON | HAND-WRITTEN, FINAL | — |
@@ -33,10 +33,11 @@ python3 common/src/main/java/dev/riftal/creator/features/arsenal/tools/make_plac
 bash    common/src/main/java/dev/riftal/creator/features/arsenal/tools/make_sounds.sh
 ```
 
-**Audio limitation, by design of the toolchain:** the ffmpeg on the build machine has no libvorbis,
-and ffmpeg's native `vorbis` encoder is stereo-only, so all three files are 2-channel. Minecraft
-plays a stereo sound **non-positionally** — no distance attenuation, no panning. The replacement
-assets must be **mono, 44.1 kHz**; nothing else about the wiring has to change.
+**Audio: mono, positional (fixed).** All of these `.ogg` files are **1-channel, 44.1 kHz
+Ogg Vorbis**, so Minecraft applies normal 3D positional attenuation and panning to them. They were
+converted with `ffmpeg -ac 1 -ar 44100` piped into `oggenc` (vorbis-tools) — ffmpeg's *native*
+`vorbis` encoder is still stereo-only and cannot be used on its own; see CONTRACT.md §9.2.
+Replacement assets must stay **mono, 44.1 kHz**.
 
 ## Sounds this feature plays
 

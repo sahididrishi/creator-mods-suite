@@ -101,6 +101,10 @@ public final class ToolkitGameTests {
      */
     public static void freezeMobsStopsMovement(GameTestHelper helper) {
         MinecraftServer server = helper.getLevel().getServer();
+        // Claim the session the way every /toolkit entry point does. The first bind for a server
+        // wipes the previous one's in-memory state, so a batch-mate that binds later - the take and
+        // camera tests both do - would otherwise clear the freeze flag out from under this test.
+        ToolkitRuntime.bind(server);
         Zombie zombie = helper.spawn(EntityType.ZOMBIE, new BlockPos(4, 5, 4));
         zombie.setNoGravity(false);
         FreezeManager.setMobs(server, true);

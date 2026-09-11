@@ -11,9 +11,11 @@ Writes, relative to the repo root:
     common/src/main/resources/assets/creator_powers/sounds/ui/ability_ready.ogg      ~0.45 s
 
 PNGs are written with the stdlib only (struct + zlib), per CONTRACT.md section 9.1.
-The ogg needs ffmpeg on PATH and is written with the native (stereo-only) `vorbis`
-encoder, per CONTRACT.md section 9.2 - so it is *stereo*, and therefore plays
-non-positionally. It is only ever used as a UI sound, so that costs nothing here.
+The ogg needs both ffmpeg and oggenc (brew install vorbis-tools) on PATH, per
+CONTRACT.md section 9.2: ffmpeg's native `vorbis` encoder is stereo-only, so ffmpeg
+renders mono WAV and oggenc does the Vorbis encode. The result is *mono* 44.1 kHz,
+which is what Minecraft needs to position a sound in 3D. This chime is only ever used
+as a UI sound today, but mono keeps it correct if it ever becomes a world sound.
 
 Everything produced is an obvious placeholder: flat colours, a hard outline, one
 recognisable silhouette per ability. See ASSETS.md next to this folder.
@@ -319,18 +321,25 @@ def write_ready_chime(path):
         "[1:a]adelay=110|110,volume=0.45,afade=t=out:st=0.18:d=0.27[b];"
         "[a][b]amix=inputs=2:duration=longest:dropout_transition=0,volume=1.6"
     )
-    command = [
+    # Stage 1: ffmpeg renders MONO 44.1 kHz WAV to stdout. Stage 2: oggenc encodes it
+    # to Ogg Vorbis -- ffmpeg's native `vorbis` encoder cannot write anything but stereo.
+    render = [
         "ffmpeg", "-v", "error", "-y",
         "-f", "lavfi", "-i", "sine=frequency=1319:duration=0.45",
         "-f", "lavfi", "-i", "sine=frequency=1760:duration=0.34",
         "-filter_complex", filter_complex,
-        "-ac", "2", "-ar", "44100", "-c:a", "vorbis", "-strict", "-2", "-b:a", "96k",
-        path,
+        "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le", "-f", "wav", "-",
     ]
+    encode = ["oggenc", "-Q", "-q", "5", "-o", path, "-"]
     try:
-        subprocess.run(command, check=True)
+        wav = subprocess.run(render, check=True, stdout=subprocess.PIPE).stdout
+        subprocess.run(encode, check=True, input=wav)
     except (OSError, subprocess.CalledProcessError) as failure:
-        print("ffmpeg failed ({}); the .ogg was NOT regenerated".format(failure), file=sys.stderr)
+        print(
+            "ffmpeg/oggenc failed ({}); the .ogg was NOT regenerated. "
+            "Need ffmpeg and oggenc (brew install vorbis-tools) on PATH.".format(failure),
+            file=sys.stderr,
+        )
         return
     print("wrote {}".format(os.path.relpath(path, REPO)))
 

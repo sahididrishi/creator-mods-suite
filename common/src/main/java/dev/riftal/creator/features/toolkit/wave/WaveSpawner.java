@@ -7,7 +7,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobSpawnType;
-import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -27,6 +27,9 @@ public final class WaveSpawner {
 
     /** Hard cap so a typo cannot spawn ten thousand zombies mid-take. */
     public static final int MAX_COUNT = 200;
+
+    /** How far above or below the requested height a spawn point may hunt for a floor. */
+    public static final int GROUND_SEARCH = 8;
 
     /**
      * Spawns {@code count} entities around {@code centre}.
@@ -52,8 +55,7 @@ public final class WaveSpawner {
                 offsetX = Math.cos(angle) * scattered;
                 offsetZ = Math.sin(angle) * scattered;
             }
-            BlockPos ground = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    BlockPos.containing(centre.x + offsetX, centre.y, centre.z + offsetZ));
+            BlockPos ground = groundNear(level, centre.x + offsetX, centre.y, centre.z + offsetZ);
             Entity entity = type.spawn(level, ground, MobSpawnType.COMMAND);
             if (entity == null) {
                 continue;
@@ -69,6 +71,52 @@ public final class WaveSpawner {
             spawned++;
         }
         return spawned;
+    }
+
+    /**
+     * The block a wave mob should stand on at {@code (x, z)}, starting from the height the director
+     * asked for.
+     *
+     * <p>Deliberately <em>not</em> the world heightmap: that is the top of the sky, so a wave called
+     * for under any kind of roof - a cave set, a walled arena, a GameTest box with its barrier lid -
+     * would land the whole ring above the roof instead of on the floor next to the camera. Instead
+     * this climbs out of terrain and then falls to the first floor within {@link #GROUND_SEARCH}
+     * blocks, and keeps the requested height when there is nothing to stand on nearby.
+     */
+    public static BlockPos groundNear(ServerLevel level, double x, double y, double z) {
+        BlockPos wanted = BlockPos.containing(x, y, z);
+        BlockPos.MutableBlockPos cursor = wanted.mutable();
+        BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos();
+
+        // Asked for a spot inside terrain: climb out, but no further than the search window.
+        int climbed = 0;
+        while (climbed < GROUND_SEARCH
+                && cursor.getY() < level.getMaxBuildHeight() - 1
+                && blocksMotion(level, probe.set(cursor.getX(), cursor.getY(), cursor.getZ()))) {
+            cursor.move(0, 1, 0);
+            climbed++;
+        }
+
+        // Asked for a spot in mid-air: fall to the first block that would hold the mob up.
+        int dropped = 0;
+        while (dropped < GROUND_SEARCH
+                && cursor.getY() > level.getMinBuildHeight()
+                && !blocksMotion(level, probe.set(cursor.getX(), cursor.getY() - 1, cursor.getZ()))) {
+            cursor.move(0, -1, 0);
+            dropped++;
+        }
+
+        // Over a void or a very deep drop: the height that was asked for beats a long fall.
+        if (dropped >= GROUND_SEARCH
+                && !blocksMotion(level, probe.set(cursor.getX(), cursor.getY() - 1, cursor.getZ()))) {
+            return wanted;
+        }
+        return cursor.immutable();
+    }
+
+    private static boolean blocksMotion(ServerLevel level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        return state.blocksMotion();
     }
 
     /** Removes every wave entity in one level. Returns how many were discarded. */

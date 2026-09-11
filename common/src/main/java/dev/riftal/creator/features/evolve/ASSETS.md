@@ -8,9 +8,9 @@ sound definition file, a lang file and the GameTest template are the whole resou
 | File | Kind | Status | What a real artist should do |
 |---|---|---|---|
 | `assets/creator_evolve/textures/entity/apex_beast.png` | 128×128 RGBA PNG | **PROCEDURAL PLACEHOLDER** (`tools/make_placeholder.py`) | Skin the beast: charcoal hide, violet chitin plates over the chest, shoulders, forearms and tail ridge, bone horns and teeth, glowing amber eyes. The generator already paints one island per cube at the real UVs (see below), so painting over it in Blockbench needs no re-unwrap. |
-| `assets/creator_evolve/sounds/evolve/roar_small.ogg` | 1.1 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (ffmpeg: brown noise, lowpassed and tremoloed) | A short throaty growl for the stage 2–4 transformations. **Mono, 44.1 kHz.** |
-| `assets/creator_evolve/sounds/evolve/roar_apex.ogg` | 2.85 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (ffmpeg: brown noise, slowed, lowpassed, echoed) | The Apex roar: lion and bear layered and pitched down, with a sub-bass tail that outlives the title card. **Mono, 44.1 kHz.** |
-| `assets/creator_evolve/sounds/evolve/complete.ogg` | 1.0 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (ffmpeg: two sines, the second delayed) | A bright two-note ascending chime landing on the beat the title card appears. **Mono, 44.1 kHz.** |
+| `assets/creator_evolve/sounds/evolve/roar_small.ogg` | 1.1 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (ffmpeg: brown noise, lowpassed and tremoloed) | A short throaty growl for the stage 2–4 transformations. **Mono, 44.1 kHz.** |
+| `assets/creator_evolve/sounds/evolve/roar_apex.ogg` | 2.85 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (ffmpeg: brown noise, slowed, lowpassed, echoed) | The Apex roar: lion and bear layered and pitched down, with a sub-bass tail that outlives the title card. **Mono, 44.1 kHz.** |
+| `assets/creator_evolve/sounds/evolve/complete.ogg` | 1.0 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (ffmpeg: two sines, the second delayed) | A bright two-note ascending chime landing on the beat the title card appears. **Mono, 44.1 kHz.** |
 | `assets/creator_evolve/sounds.json` | JSON | HAND-WRITTEN, FINAL | — |
 | `assets/creator_evolve/lang/en_us.json` | JSON | HAND-WRITTEN, FINAL | — |
 | `data/creator_evolve/structure/empty.nbt` | NBT | SCAFFOLD, FINAL | — (the shared 9×9×9 GameTest arena) |
@@ -40,12 +40,13 @@ A vanilla cube unwraps to `top | bottom` across the top strip and `right | front
 below it, so each island is `2*(w + d)` wide and `d + h` tall. Everything outside an island is left
 fully transparent on purpose — it makes the island map readable and the placeholder obvious.
 
-## Known limitation of the placeholder audio
+## Placeholder audio — channel layout
 
-The three `.ogg` files are **2-channel**, because the ffmpeg on the build machine has no
-`libvorbis` and its native `vorbis` encoder is stereo-only. Minecraft plays stereo sounds
-**non-positionally** — no distance attenuation, no direction. Every replacement must be **mono,
-44.1 kHz** or the roar will not appear to come from the beast.
+The three `.ogg` files are **1-channel (mono), 44.1 kHz Ogg Vorbis**, so Minecraft applies distance
+attenuation and direction and the roar appears to come from the beast. (Stereo files are played
+non-positionally; these are no longer stereo.) ffmpeg's native `vorbis` encoder is stereo-only, so
+the pipeline is `ffmpeg -ac 1 -ar 44100` → `oggenc` (vorbis-tools); see CONTRACT.md §9.2. Every
+replacement must stay **mono, 44.1 kHz**.
 
 ## The HUD ships no textures
 

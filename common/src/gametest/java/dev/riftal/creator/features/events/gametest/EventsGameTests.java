@@ -24,6 +24,14 @@ import net.minecraft.world.phys.Vec3;
  * <p>Add a {@code public static void name(GameTestHelper helper)} here, then one annotated stub in
  * {@code fabric/src/gametest/java/.../EventsFabricGameTests.java} and one in
  * {@code neoforge/src/main/java/.../EventsNeoForgeGameTests.java}.
+ *
+ * <p><b>Anything below that touches {@link EventManager} needs its own {@code batch} on both
+ * stubs.</b> The director keeps exactly one active event process-wide - that is the design, and
+ * {@code EventManager.start} evicts whatever is running - while tests sharing a batch run
+ * simultaneously in adjacent arenas. Two director tests in one batch therefore clobber each
+ * other's active-event slot, which shows up as a rare, ordering-dependent "should still be
+ * running" failure in whichever test happened to yield a tick. Batches run one after another, so
+ * a batch of one is the isolation. Read-only tests may share {@code defaultBatch}.
  */
 public final class EventsGameTests {
 

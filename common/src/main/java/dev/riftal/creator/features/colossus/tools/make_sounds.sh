@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # Procedural placeholder audio for the creator_colossus feature (CONTRACT.md section 9.2).
 #
-# Minecraft plays Ogg *Vorbis*. The ffmpeg on this machine has no libvorbis and its native
-# `vorbis` encoder is stereo-only, so every file below is `-ac 2` and therefore plays
-# NON-POSITIONALLY in game. Real replacements must be mono 44.1 kHz - see ASSETS.md.
+# Minecraft plays Ogg *Vorbis*, and only applies 3D positional attenuation to MONO sounds -
+# a stereo .ogg plays flat and non-directional. Every file below is `-ac 1` (mono) 44.1 kHz.
+# The ffmpeg on this machine has no libvorbis and its native `vorbis` encoder is stereo-only,
+# so ffmpeg renders mono WAV and oggenc (brew install vorbis-tools) encodes it - see ASSETS.md
+# and CONTRACT.md section 9.2.
 #
 # Run from the repo root:
 #   bash common/src/main/java/dev/riftal/creator/features/colossus/tools/make_sounds.sh
 set -euo pipefail
 
+command -v oggenc >/dev/null || { echo "oggenc not found; brew install vorbis-tools" >&2; exit 1; }
+
 OUT="common/src/main/resources/assets/creator_colossus/sounds"
 mkdir -p "$OUT/colossus" "$OUT/minion"
 
-enc() { ffmpeg -v error -y -f lavfi -i "$1" -af "$2" -ac 2 -ar 44100 -c:a vorbis -strict -2 -b:a 96k "$3"; }
+enc() { ffmpeg -v error -y -f lavfi -i "$1" -af "$2" -ac 1 -ar 44100 -f wav - | oggenc -Q -q 5 -o "$3" -; }
 
 # colossus.roar - 1.75 s of brown noise pitched down, matching the 35-tick roar clip.
 enc "anoisesrc=color=brown:duration=1.3:amplitude=0.9" \

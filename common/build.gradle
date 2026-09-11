@@ -3,6 +3,24 @@ plugins {
     id 'net.neoforged.moddev'
 }
 
+// Loader-agnostic GameTest bodies live in their own source set, so they are never compiled into
+// `main` and can never reach a release jar. The loaders pull these sources in through the
+// `commonGametestJava` configuration and compile them into their own `gametest` source sets - the
+// same trick `commonJava` plays for main, see buildSrc/src/main/groovy/multiloader-loader.gradle.
+sourceSets {
+    gametest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+// The shared test bodies call into feature classes whose signatures mention compile-only API (a
+// boss entity implements GeoEntity, for one), so the gametest source set needs the same
+// compile-time view of the world as main.
+configurations {
+    gametestCompileOnly.extendsFrom compileOnly
+}
+
 neoForge {
     neoFormVersion = neo_form_version
     // Automatically enable AccessTransformers if the file exists
@@ -19,6 +37,8 @@ neoForge {
     // NOT bootstrapped: registries are empty and anything that touches them throws. Keep unit
     // tests to pure logic; use a GameTest when you need a live world.
     addModdingDependenciesTo(sourceSets.test)
+    // GameTests are vanilla-API-only, but they still need the Minecraft classes to compile.
+    addModdingDependenciesTo(sourceSets.gametest)
 }
 
 dependencies {
@@ -52,9 +72,20 @@ configurations {
         canBeResolved = false
         canBeConsumed = true
     }
+    commonGametestJava {
+        canBeResolved = false
+        canBeConsumed = true
+    }
 }
 
 artifacts {
     commonJava sourceSets.main.java.sourceDirectories.singleFile
     commonResources sourceSets.main.resources.sourceDirectories.singleFile
+    commonGametestJava sourceSets.gametest.java.sourceDirectories.singleFile
+}
+
+// Compile the GameTest bodies here too, so a break in them fails `./gradlew build` against the
+// common view of the API instead of only inside whichever loader happens to build first.
+tasks.named('check') {
+    dependsOn tasks.named('compileGametestJava')
 }

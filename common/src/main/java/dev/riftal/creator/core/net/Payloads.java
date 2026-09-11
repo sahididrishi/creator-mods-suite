@@ -30,6 +30,14 @@ import net.minecraft.world.entity.Entity;
  * construction, so registering later misses the window.
  *
  * <p>Payload ids must live in your feature's namespace.
+ *
+ * <p><b>Sending never throws because of the receiver.</b> A player whose connection does not exist
+ * yet, is going away, or never negotiated our channel (a fake player from another mod, a GameTest
+ * stand-in, a client that has the feature switched off) is silently skipped by the loader helper
+ * rather than blowing up the caller. Feature code routinely mirrors state to the client from a
+ * scheduled task or an entity tick, and one unreachable player must not take that caller down -
+ * on NeoForge {@code NetworkRegistry#checkPacket} throws for exactly this case, which used to
+ * cancel the calling {@link dev.riftal.creator.core.sched.TickScheduler} task permanently.
  */
 public final class Payloads {
 
@@ -59,17 +67,20 @@ public final class Payloads {
         CoreServices.NETWORK.sendToServer(payload);
     }
 
-    /** Server to one player. */
+    /** Server to one player. A player who cannot receive it is skipped, not an error. */
     public static void sendToPlayer(ServerPlayer player, CustomPacketPayload payload) {
         CoreServices.NETWORK.sendToPlayer(player, payload);
     }
 
-    /** Server to every connected player. */
+    /** Server to every connected player. Players who cannot receive it are skipped. */
     public static void sendToAll(MinecraftServer server, CustomPacketPayload payload) {
         CoreServices.NETWORK.sendToAll(server, payload);
     }
 
-    /** Server to every player tracking {@code entity}, including the entity itself if it is a player. */
+    /**
+     * Server to every player tracking {@code entity}, including the entity itself if it is a
+     * player. Players who cannot receive it are skipped.
+     */
     public static void sendToTracking(Entity entity, CustomPacketPayload payload) {
         CoreServices.NETWORK.sendToTracking(entity, payload);
     }

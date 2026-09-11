@@ -7,9 +7,15 @@
     " I "
   ],
   "key": {
-    "A": "minecraft:amethyst_shard",
-    "G": "minecraft:gold_ingot",
-    "I": "minecraft:iron_ingot"
+    "A": {
+      "item": "minecraft:amethyst_shard"
+    },
+    "G": {
+      "item": "minecraft:gold_ingot"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    }
   },
   "result": {
     "id": "creator_vault:vault_key",

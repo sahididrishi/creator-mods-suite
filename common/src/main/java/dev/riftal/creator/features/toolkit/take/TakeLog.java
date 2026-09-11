@@ -46,6 +46,11 @@ public final class TakeLog {
     /**
      * Opens (creating the directory tree) the log for one take and writes its header line.
      *
+     * <p>The header <em>replaces</em> whatever was in the target file. One file is one take: the
+     * name is derived from world, date and take number, so re-shooting a take after
+     * {@code /toolkit take set 42} on the same day targets a name that already exists, and the new
+     * take must not inherit the discarded one's marks and footer.
+     *
      * @param baseDirectory the server directory
      * @param worldName     raw level name; sanitised for the file name
      * @return the log, or null if the directory could not be created
@@ -63,37 +68,42 @@ public final class TakeLog {
             return null;
         }
         TakeLog log = new TakeLog(target);
-        log.append("take=" + state.number()
+        log.write("take=" + state.number()
                 + " start=" + TakeFormat.isoInstant(state.startEpochMs())
                 + " tick=" + state.startTick()
-                + " world=" + safeWorld);
+                + " world=" + safeWorld, true);
         return log;
     }
 
     /** Appends one mark line. */
     public void mark(Mark mark) {
-        append(mark.toLogLine());
+        write(mark.toLogLine(), false);
     }
 
     /** Appends the footer line and stops being useful. */
     public void close(TakeState stopped, long nowEpochMs) {
-        append("stop=" + TakeFormat.isoInstant(nowEpochMs)
+        write("stop=" + TakeFormat.isoInstant(nowEpochMs)
                 + " rta=" + TakeFormat.formatRta(stopped.stoppedRtaMs())
-                + " marks=" + stopped.marks().size());
+                + " marks=" + stopped.marks().size(), false);
     }
 
     /** Appends the footer line for a take that was interrupted rather than stopped cleanly. */
     public void closeAborted(TakeState stopped, long nowEpochMs, String reason) {
-        append("stop=" + TakeFormat.isoInstant(nowEpochMs)
+        write("stop=" + TakeFormat.isoInstant(nowEpochMs)
                 + " rta=" + TakeFormat.formatRta(stopped.stoppedRtaMs())
                 + " marks=" + stopped.marks().size()
-                + " reason=" + reason);
+                + " reason=" + reason, false);
     }
 
-    private void append(String line) {
+    /**
+     * Writes one line. {@code truncate} starts the file from scratch (the header); every later line
+     * is appended.
+     */
+    private void write(String line, boolean truncate) {
         try {
             Files.writeString(file, line + System.lineSeparator(), StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                    truncate ? StandardOpenOption.TRUNCATE_EXISTING : StandardOpenOption.APPEND);
         } catch (IOException e) {
             LOG.warn("[toolkit] could not write take log {}", file, e);
         }

@@ -173,8 +173,9 @@ Handy while shooting:
   radius rather than expanding.
 * A player who logs out and back in mid-fight gets the right texture, ring radius and boss bar
   immediately: phase, ring radius and arena centre are all synched entity data, not client guesses.
-* The audio that ships today is **procedural placeholder**, and stereo — which means Minecraft plays
-  it non-positionally. See `ASSETS.md` next to the feature source.
+* The audio that ships today is **procedural placeholder**, but it is **mono 44.1 kHz Ogg Vorbis**,
+  so Minecraft plays it positionally — distance attenuation and direction both work. See
+  `ASSETS.md` next to the feature source.
 
 ---
 

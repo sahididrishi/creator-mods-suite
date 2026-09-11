@@ -50,13 +50,13 @@ public final class FabricNetworkHelper implements INetworkHelper {
 
     @Override
     public void sendToPlayer(ServerPlayer player, CustomPacketPayload payload) {
-        ServerPlayNetworking.send(player, payload);
+        send(player, payload);
     }
 
     @Override
     public void sendToAll(MinecraftServer server, CustomPacketPayload payload) {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            ServerPlayNetworking.send(player, payload);
+            send(player, payload);
         }
     }
 
@@ -66,10 +66,24 @@ public final class FabricNetworkHelper implements INetworkHelper {
             return;
         }
         for (ServerPlayer player : PlayerLookup.tracking(entity)) {
-            ServerPlayNetworking.send(player, payload);
+            send(player, payload);
         }
         if (entity instanceof ServerPlayer self) {
-            ServerPlayNetworking.send(self, payload);
+            send(self, payload);
         }
+    }
+
+    /**
+     * Sends to one player, skipping any player that is not actually on the network.
+     * {@code ServerPlayNetworking.send} dereferences {@code ServerPlayer#connection}, which is null
+     * until the player list places the player - a connection-less player (another mod's fake
+     * player, a GameTest stand-in, a player mid-disconnect) would otherwise turn an ordinary HUD
+     * mirror into a NullPointerException inside whatever feature code happened to be running.
+     */
+    private static void send(ServerPlayer player, CustomPacketPayload payload) {
+        if (player.connection == null) {
+            return;
+        }
+        ServerPlayNetworking.send(player, payload);
     }
 }

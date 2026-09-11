@@ -3,7 +3,10 @@ plugins {
     id 'fabric-loom'
 }
 
-// Dedicated source set for GameTests so they never ship in the release jar.
+// Dedicated source set for GameTests so they never ship in the release jar. The loader-agnostic
+// test bodies from :common are compiled into it too - see the `commonGametestJava` wiring in
+// buildSrc/src/main/groovy/multiloader-loader.gradle, which also hooks `check` up to
+// `compileGametestJava`.
 sourceSets {
     gametest {
         compileClasspath += sourceSets.main.compileClasspath
@@ -82,10 +85,4 @@ tasks.named('processGametestResources', ProcessResources) {
         expand expandProps
     }
     inputs.properties(expandProps)
-}
-
-// Keep the gametest source set compiling as part of `./gradlew build` (the run itself is not wired
-// into `check` - it boots a dedicated server and takes ~1 minute; run it explicitly instead).
-tasks.named('check') {
-    dependsOn tasks.named('compileGametestJava')
 }

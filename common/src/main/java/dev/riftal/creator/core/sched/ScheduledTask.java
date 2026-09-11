@@ -14,6 +14,8 @@ public final class ScheduledTask {
     ResourceLocation owner;
     boolean cancelled;
     boolean done;
+    /** Throws in a row. Reset by every run that completes normally; see TickScheduler. */
+    int consecutiveFailures;
 
     ScheduledTask(Consumer<ScheduledTask> action, int delay, int period, int repeats) {
         this.action = action;

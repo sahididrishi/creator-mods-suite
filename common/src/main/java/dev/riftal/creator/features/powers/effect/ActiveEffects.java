@@ -60,6 +60,23 @@ public final class ActiveEffects {
     public static final ResourceLocation DOME_TOUGHNESS_ID =
             ResourceLocation.fromNamespaceAndPath(PowersFeature.NAMESPACE, "dome_toughness");
 
+    /**
+     * Id of the {@code generic.max_absorption} headroom the dome needs to hand over its four
+     * golden hearts.
+     *
+     * <p>1.21 gates absorption behind that attribute: {@code Attributes.MAX_ABSORPTION} is a
+     * {@code RangedAttribute} whose default is <b>0.0</b>, and
+     * {@code LivingEntity#setAbsorptionAmount} is
+     * {@code internalSetAbsorptionAmount(Mth.clamp(amount, 0.0F, getMaxAbsorption()))}. Without a
+     * modifier on that attribute the dome's {@code setAbsorptionAmount(8)} is silently clamped to
+     * zero and the dome grants nothing at all. Vanilla's own Absorption effect works exactly this
+     * way - it carries a {@code minecraft:effect.absorption} modifier on this attribute - so this
+     * is the supported route, not a workaround. The modifier is transient: it is never written to
+     * the player file.
+     */
+    public static final ResourceLocation DOME_ABSORPTION_ID =
+            ResourceLocation.fromNamespaceAndPath(PowersFeature.NAMESPACE, "dome_absorption");
+
     private static final double DOME_ARMOR_BONUS = 10.0D;
     private static final double DOME_TOUGHNESS_BONUS = 4.0D;
 
@@ -100,8 +117,12 @@ public final class ActiveEffects {
 
         float before = player.getAbsorptionAmount();
         float target = Math.max(before, absorption);
-        float given = target - before;
+        // The ceiling has to go up BEFORE the hearts go on, or setAbsorptionAmount clamps them
+        // away - see DOME_ABSORPTION_ID.
+        addDomeModifier(player, Attributes.MAX_ABSORPTION, DOME_ABSORPTION_ID, absorption);
         player.setAbsorptionAmount(target);
+        // Read back rather than trusting `target`, so expiry hands back exactly what landed.
+        float given = Math.max(0.0F, player.getAbsorptionAmount() - before);
 
         addDomeModifier(player, Attributes.ARMOR, DOME_ARMOR_ID, DOME_ARMOR_BONUS);
         addDomeModifier(player, Attributes.ARMOR_TOUGHNESS, DOME_TOUGHNESS_ID, DOME_TOUGHNESS_BONUS);
@@ -134,6 +155,10 @@ public final class ActiveEffects {
             float now = player.getAbsorptionAmount();
             player.setAbsorptionAmount(Math.max(0.0F, now - dome.absorptionGiven()));
         }
+        // Only now: dropping the ceiling re-clamps whatever absorption is left (LivingEntity
+        // #onAttributeUpdated), so it must come off AFTER the give-back or it would also eat a
+        // golden apple's hearts - which is the whole point of tracking absorptionGiven.
+        removeDomeModifier(player, Attributes.MAX_ABSORPTION, DOME_ABSORPTION_ID);
         removeDomeModifier(player, Attributes.ARMOR, DOME_ARMOR_ID);
         removeDomeModifier(player, Attributes.ARMOR_TOUGHNESS, DOME_TOUGHNESS_ID);
         if (playSound && player.level() instanceof ServerLevel level) {

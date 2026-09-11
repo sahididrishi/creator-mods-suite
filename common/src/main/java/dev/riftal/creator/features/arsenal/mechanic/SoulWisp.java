@@ -11,6 +11,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.UUID;
@@ -27,6 +30,19 @@ public final class SoulWisp {
 
     /** Scheduler tag for every wisp flight. */
     public static final ResourceLocation TASK_TAG = ArsenalFeature.res("soul_wisp");
+
+    /**
+     * Id of the {@code generic.max_absorption} headroom a soul grants its killer.
+     *
+     * <p>1.21 gates absorption behind that attribute, whose default value is <b>0.0</b>
+     * ({@code Attributes.MAX_ABSORPTION}, a {@code RangedAttribute} with default 0), and
+     * {@code LivingEntity#setAbsorptionAmount} clamps its argument to
+     * {@code [0, getMaxAbsorption()]}. Without a modifier the wisp would land and grant exactly
+     * nothing. Vanilla's own Absorption effect works the same way - it carries a
+     * {@code minecraft:effect.absorption} modifier on this attribute - so this is the supported
+     * route, not a workaround.
+     */
+    public static final ResourceLocation HEADROOM_ID = ArsenalFeature.res("soul_absorption");
 
     /** Ticks the wisp takes to reach its killer. */
     public static final int FLIGHT_TICKS = 20;
@@ -61,9 +77,25 @@ public final class SoulWisp {
     }
 
     private static void arrive(ServerLevel level, ServerPlayer player) {
+        grantHeadroom(player);
         player.setAbsorptionAmount(DamageMath.absorptionAfterKill(player.getAbsorptionAmount()));
         Fx.particles(level, ParticleTypes.SOUL, player.getEyePosition(), 8, 0.25D, 0.01D);
         Fx.sound(level, player.position(), ArsenalFeature.soulAbsorb(), SoundSource.PLAYERS, 0.8F, 1.0F);
+    }
+
+    /**
+     * Raises the killer's absorption ceiling to {@link DamageMath#ABSORPTION_CAP} so the hearts the
+     * wisp is about to hand over survive {@code setAbsorptionAmount}'s clamp. See
+     * {@link #HEADROOM_ID}. The modifier is transient: it is never written to the player file, so a
+     * creator's world is not permanently edited by having used the scythe once.
+     */
+    private static void grantHeadroom(ServerPlayer player) {
+        AttributeInstance ceiling = player.getAttribute(Attributes.MAX_ABSORPTION);
+        if (ceiling == null || ceiling.hasModifier(HEADROOM_ID)) {
+            return;
+        }
+        ceiling.addTransientModifier(new AttributeModifier(HEADROOM_ID, DamageMath.ABSORPTION_CAP,
+                AttributeModifier.Operation.ADD_VALUE));
     }
 
     private SoulWisp() {

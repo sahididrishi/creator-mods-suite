@@ -9,6 +9,9 @@ configurations {
     commonResources{
         canBeResolved = true
     }
+    commonGametestJava{
+        canBeResolved = true
+    }
 }
 
 dependencies {
@@ -19,11 +22,38 @@ dependencies {
     }
     commonJava project(path: ':common', configuration: 'commonJava')
     commonResources project(path: ':common', configuration: 'commonResources')
+    commonGametestJava project(path: ':common', configuration: 'commonGametestJava')
 }
 
 tasks.named('compileJava', JavaCompile) {
     dependsOn(configurations.commonJava)
     source(configurations.commonJava)
+}
+
+// Both loaders keep their GameTests in a dedicated `gametest` source set that is never packaged
+// into the release jar, so the loader-agnostic test bodies from :common are compiled into that
+// source set rather than into main - exactly the reverse of `commonJava` above, which feeds main.
+//
+// The source set itself is declared by each loader script (it has to be: it copies main's compile
+// and runtime classpaths, so fabric-loom / moddev must have finished setting those up first), so
+// react to it appearing rather than naming `compileGametestJava` here, which does not exist yet
+// when this plugin is applied. It has to be `tasks.named` and NOT `withType(..).configureEach`:
+// the java plugin calls `setSource(sourceSet.java)` from the compile task's own registration
+// action, and that would silently wipe out anything a configureEach rule had already added.
+sourceSets.configureEach { sourceSet ->
+    if (sourceSet.name != 'gametest') {
+        return
+    }
+    tasks.named(sourceSet.compileJavaTaskName, JavaCompile) {
+        dependsOn(configurations.commonGametestJava)
+        source(configurations.commonGametestJava)
+    }
+    // Keep the gametest source set compiling as part of `./gradlew build`. The runs themselves are
+    // NOT wired into `check` - each boots a dedicated server and takes about a minute; run them
+    // explicitly with `./gradlew :fabric:runGameTest` / `./gradlew :neoforge:runGameTestServer`.
+    tasks.named('check') {
+        dependsOn tasks.named(sourceSet.compileJavaTaskName)
+    }
 }
 
 processResources {

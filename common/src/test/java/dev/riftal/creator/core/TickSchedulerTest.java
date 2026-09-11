@@ -84,6 +84,33 @@ class TickSchedulerTest {
     }
 
     @Test
+    void aRepeatingTaskSurvivesATransientFailure() {
+        AtomicInteger runs = new AtomicInteger();
+        TickScheduler.runRepeating(1, -1, () -> {
+            if (runs.incrementAndGet() == 2) {
+                throw new IllegalStateException("one bad tick");
+            }
+        });
+
+        TickScheduler.tickForTest(6);
+        assertEquals(6, runs.get(), "a single throw must not disable a repeating task");
+        assertEquals(1, TickScheduler.size(), "the task is still scheduled");
+    }
+
+    @Test
+    void aTaskThatKeepsThrowingSpendsItsBudgetAndStops() {
+        AtomicInteger runs = new AtomicInteger();
+        TickScheduler.runRepeating(1, -1, () -> {
+            runs.incrementAndGet();
+            throw new IllegalStateException("boom");
+        });
+
+        TickScheduler.tickForTest(10);
+        assertEquals(3, runs.get(), "cancelled once the consecutive-failure budget is spent");
+        assertEquals(0, TickScheduler.size());
+    }
+
+    @Test
     void aThrowingTaskIsCancelledAndTheLoopSurvives() {
         AtomicInteger good = new AtomicInteger();
         TickScheduler.runRepeating(1, -1, () -> {

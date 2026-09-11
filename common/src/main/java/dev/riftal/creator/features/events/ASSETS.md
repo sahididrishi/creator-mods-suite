@@ -32,19 +32,19 @@ GeckoLib entity, and every particle used is vanilla (`FLAME`, `LAVA`, `LARGE_SMO
 
 ## Sounds
 
-All six are **stereo** (the ffmpeg on this machine has no libvorbis and its native `vorbis` encoder
-is stereo-only, per CONTRACT.md §9.2), which means **Minecraft plays them non-positionally — no
-distance attenuation**. Every replacement must be **mono, 44.1 kHz**, or the drone and the hum will
-not fade with distance.
+All six are **mono, 44.1 kHz Ogg Vorbis**, so Minecraft applies normal distance attenuation and
+panning — the drone and the hum fade with distance as intended. ffmpeg's native `vorbis` encoder is
+stereo-only, so they are encoded with `ffmpeg -ac 1 -ar 44100` piped into `oggenc` (vorbis-tools),
+per CONTRACT.md §9.2. Every replacement must stay **mono, 44.1 kHz**.
 
 | File | Sound event | Kind | Status | What a real artist should do |
 |---|---|---|---|---|
-| `assets/creator_events/sounds/bloodmoon/drone.ogg` | `creator_events:bloodmoon.drone` | 6.0 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (55 Hz + fifth + slow beat) | Seamless loop: bowed sub-bass, distant wolves, a faint metallic shimmer. Re-triggered every 5 s, so it must not click at the seam |
-| `assets/creator_events/sounds/meteor/whistle.ogg` | `creator_events:meteor.whistle` | 3.0 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (falling sweep + air noise) | Air-tearing descending howl, loud, mono, with the doppler already baked in |
-| `assets/creator_events/sounds/meteor/impact.ogg` | `creator_events:meteor.impact` | 2.2 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (42 Hz thud + noise burst) | Deep ground-shaking boom, rock debris tail, a long low rumble underneath |
-| `assets/creator_events/sounds/siege/horn.ogg` | `creator_events:siege.horn` | 2.4 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (two notes, D2 → G2) | A real war horn, two notes, slightly detuned, with a stone-courtyard tail |
-| `assets/creator_events/sounds/lucky/pop.ogg` | `creator_events:lucky.pop` | 0.45 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (rising blip) | Short bright pop-and-sparkle; it fires on every landing block, so it must not fatigue |
-| `assets/creator_events/sounds/void/hum.ogg` | `creator_events:void.hum` | 4.0 s Vorbis, **stereo** | **PROCEDURAL PLACEHOLDER** (38 Hz + tremolo) | Sub-bass dread with a slow tremolo and a touch of noise; felt more than heard |
+| `assets/creator_events/sounds/bloodmoon/drone.ogg` | `creator_events:bloodmoon.drone` | 6.0 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (55 Hz + fifth + slow beat) | Seamless loop: bowed sub-bass, distant wolves, a faint metallic shimmer. Re-triggered every 5 s, so it must not click at the seam |
+| `assets/creator_events/sounds/meteor/whistle.ogg` | `creator_events:meteor.whistle` | 3.0 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (falling sweep + air noise) | Air-tearing descending howl, loud, mono, with the doppler already baked in |
+| `assets/creator_events/sounds/meteor/impact.ogg` | `creator_events:meteor.impact` | 2.2 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (42 Hz thud + noise burst) | Deep ground-shaking boom, rock debris tail, a long low rumble underneath |
+| `assets/creator_events/sounds/siege/horn.ogg` | `creator_events:siege.horn` | 2.4 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (two notes, D2 → G2) | A real war horn, two notes, slightly detuned, with a stone-courtyard tail |
+| `assets/creator_events/sounds/lucky/pop.ogg` | `creator_events:lucky.pop` | 0.45 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (rising blip) | Short bright pop-and-sparkle; it fires on every landing block, so it must not fatigue |
+| `assets/creator_events/sounds/void/hum.ogg` | `creator_events:void.hum` | 4.0 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (38 Hz + tremolo) | Sub-bass dread with a slow tremolo and a touch of noise; felt more than heard |
 
 Sound event ids use the `<category>.<name>` convention, so the `sounds.json` keys are
 `bloodmoon.drone`, `meteor.whistle`, `meteor.impact`, `siege.horn`, `lucky.pop`, `void.hum`, and the

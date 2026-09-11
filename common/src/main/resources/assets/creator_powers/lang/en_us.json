@@ -1,5 +1,6 @@
 {
   "feature.creator_powers.name": "Power Kit",
+  "feature.creator_powers.description": "Six keybind superpowers - dash, fire burst, ground pound, ender pull, shield dome, mob freeze - with server-authoritative cooldowns and a HUD cooldown row.",
 
   "ability.creator_powers.dash": "Dash",
   "ability.creator_powers.fire_burst": "Fire Burst",
