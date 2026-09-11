@@ -1,0 +1,4 @@
+{
+  "feature.creator_rules.name": "Rule Engine",
+  "feature.creator_rules.description": "Stackable chaos rules toggled at runtime, listed on the HUD and persisted with the world."
+}

@@ -17,11 +17,25 @@
     "entrypoints": {
         "main": [
             "dev.riftal.creator.CreatorModsFabric"
+        ],
+        "client": [
+            "dev.riftal.creator.CreatorModsFabricClient"
+        ],
+        "server": [
+            "dev.riftal.creator.CreatorModsFabricServer"
         ]
     },
     "mixins": [
         "${mod_id}.mixins.json",
-        "${mod_id}.fabric.mixins.json"
+        "${mod_id}.fabric.mixins.json",
+        "${mod_id}-toolkit.mixins.json",
+        "${mod_id}-colossus.mixins.json",
+        "${mod_id}-powers.mixins.json",
+        "${mod_id}-rules.mixins.json",
+        "${mod_id}-evolve.mixins.json",
+        "${mod_id}-events.mixins.json",
+        "${mod_id}-arsenal.mixins.json",
+        "${mod_id}-vault.mixins.json"
     ],
     "depends": {
         "fabricloader": ">=${fabric_loader_version}",

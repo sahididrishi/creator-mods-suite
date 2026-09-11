@@ -6,7 +6,15 @@
     "environment": "*",
     "entrypoints": {
         "fabric-gametest": [
-            "dev.riftal.creator.gametest.FabricGameTests"
+            "dev.riftal.creator.gametest.FabricGameTests",
+            "dev.riftal.creator.features.toolkit.gametest.ToolkitFabricGameTests",
+            "dev.riftal.creator.features.colossus.gametest.ColossusFabricGameTests",
+            "dev.riftal.creator.features.powers.gametest.PowersFabricGameTests",
+            "dev.riftal.creator.features.rules.gametest.RulesFabricGameTests",
+            "dev.riftal.creator.features.evolve.gametest.EvolveFabricGameTests",
+            "dev.riftal.creator.features.events.gametest.EventsFabricGameTests",
+            "dev.riftal.creator.features.arsenal.gametest.ArsenalFabricGameTests",
+            "dev.riftal.creator.features.vault.gametest.VaultFabricGameTests"
         ]
     },
     "depends": {

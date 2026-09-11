@@ -1,0 +1,25 @@
+package dev.riftal.creator.features.evolve.gametest;
+
+import dev.riftal.creator.core.CreatorMods;
+import dev.riftal.creator.features.evolve.EvolveFeature;
+import net.minecraft.gametest.framework.GameTestHelper;
+
+/**
+ * GameTest bodies for the {@code evolve} feature. Vanilla API only, so both loaders can call them.
+ *
+ * <p>Add a {@code public static void name(GameTestHelper helper)} here, then one annotated stub in
+ * {@code fabric/src/gametest/java/.../EvolveFabricGameTests.java} and one in
+ * {@code neoforge/src/main/java/.../EvolveNeoForgeGameTests.java}.
+ */
+public final class EvolveGameTests {
+
+    /** Smoke test: the feature survived the config filter and is live in this session. */
+    public static void featureIsEnabled(GameTestHelper helper) {
+        helper.assertTrue(CreatorMods.isEnabled(EvolveFeature.ID),
+                "feature '" + EvolveFeature.ID + "' should be enabled in the test session");
+        helper.succeed();
+    }
+
+    private EvolveGameTests() {
+    }
+}

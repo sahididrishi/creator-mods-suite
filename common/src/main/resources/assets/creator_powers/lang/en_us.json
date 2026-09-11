@@ -1,0 +1,4 @@
+{
+  "feature.creator_powers.name": "Power Kit",
+  "feature.creator_powers.description": "Player abilities on keybinds with cooldowns, a cooldown HUD row and server-validated activation."
+}

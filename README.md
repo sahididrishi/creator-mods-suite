@@ -10,6 +10,46 @@ one shared source tree. Based on [jaredlll08/MultiLoader-Template](https://githu
 - Author: Nasir Idrishi (Riftal Studios)
 - License: MIT
 
+## Working on this repo
+
+Eight features are developed **in parallel**, one agent each, on top of a shared `creatorcore`
+library. Before writing any feature code read **[CONTRACT.md](CONTRACT.md)** - it owns the file
+ownership table, the core API with compiling examples, the naming conventions, and the rule that
+feature agents do not run Gradle.
+
+| Feature | id | Namespace | Plan |
+|---|---|---|---|
+| Director's Toolkit | `toolkit` | `creator_toolkit` | `plans/01-directors-toolkit.md` |
+| Ashen Colossus | `colossus` | `creator_colossus` | `plans/02-ashen-colossus.md` |
+| Power Kit | `powers` | `creator_powers` | `plans/03-power-kit.md` |
+| Rule Engine | `rules` | `creator_rules` | `plans/04-rule-engine.md` |
+| Evolve | `evolve` | `creator_evolve` | `plans/05-evolve.md` |
+| Event Director | `events` | `creator_events` | `plans/06-event-director.md` |
+| Arsenal | `arsenal` | `creator_arsenal` | `plans/07-arsenal.md` |
+| Cursed Vault | `vault` | `creator_vault` | `plans/08-cursed-vault.md` |
+
+Every feature can be switched off in `config/creatormods.json` (or with
+`/creator feature <id> false`); a disabled feature registers nothing at all, which makes for clean
+single-feature recordings.
+
+## Shared library: `dev.riftal.creator.core`
+
+```
+core/
+├── Feature                  # id + 4 lifecycle phases, one per feature
+├── CreatorMods              # holds all 8 features, drives the lifecycle
+├── config/CreatorConfig     # config/creatormods.json, one toggle per feature
+├── registry/Registrar, RegistryEntry, EntityAttributes
+├── command/CommandHelper, SilentMode, CoreCommands   # /creator
+├── hud/HudLayer, HudLayers, HudText                  # client only
+├── client/ClientRenderers                            # client only
+├── sched/TickScheduler, ScheduledTask
+├── data/PlayerData                                   # attachments
+├── net/Payloads, ServerHandler, ClientHandler
+├── util/MathUtil, Fx, Selection, CooldownTracker, Titles
+└── platform/CoreServices + services/{IAttachmentHelper, INetworkHelper}
+```
+
 ## Modules
 
 | Module | Compiles against | Purpose |
@@ -58,21 +98,24 @@ Only the `fabric` and `neoforge` jars ship. `common` is a build-time artifact.
 
 ## Adding a GameTest
 
-1. Write the body as a `public static void name(GameTestHelper helper)` in
-   `common/src/main/java/dev/riftal/creator/gametest/CommonGameTests.java` (vanilla API only).
-2. Add a delegating stub in **both**:
-   - `fabric/src/gametest/java/dev/riftal/creator/gametest/FabricGameTests.java`
-     — `@GameTest(template = "creatormods:empty")` (full `namespace:path`; vanilla has no
-     `templateNamespace` field, and Fabric uses `template()` verbatim).
-   - `neoforge/src/main/java/dev/riftal/creator/gametest/NeoForgeGameTests.java`
-     — `@GameTest(template = "empty")` inside the `@GameTestHolder(MOD_ID) @PrefixGameTestTemplate(false)` class.
-3. Every test must end in `succeed()` / `succeedWhen(...)` or it burns the 100-tick timeout and fails.
+Core-level tests: body in `common/src/main/java/dev/riftal/creator/gametest/CommonGameTests.java`,
+stubs in `fabric/src/gametest/java/.../FabricGameTests.java` (`@GameTest(template = "creatormods:empty")`
+— full `namespace:path`, because vanilla has no `templateNamespace` field and Fabric uses
+`template()` verbatim) and `neoforge/src/main/java/.../NeoForgeGameTests.java`
+(`@GameTest(template = "empty")` inside `@GameTestHolder(MOD_ID) @PrefixGameTestTemplate(false)`).
 
-Structure templates live in `common/src/main/resources/data/creatormods/structure/*.nbt`.
-`empty.nbt` is a 9x9x9 box with a polished-andesite floor at y=0.
+Feature-level tests follow the same shape in the feature's own `gametest` package - see
+[CONTRACT.md §7.2](CONTRACT.md). Every test must end in `succeed()` / `succeedWhen(...)` or it burns
+the 100-tick timeout and fails.
+
+Structure templates live in `common/src/main/resources/data/<namespace>/structure/*.nbt`.
+`empty.nbt` is a 9x9x9 box with a polished-andesite floor at y=0, and ships in `creatormods` plus
+all eight `creator_*` namespaces.
 
 ## Adding a mixin
 
-Drop the class into `dev.riftal.creator.mixin` (common), `dev.riftal.creator.mixin.fabric`, or
-`dev.riftal.creator.mixin.neoforge`, then list it in the matching `creatormods*.mixins.json`.
-Loom >= 1.17 remaps mixins without an annotation processor, so there are no refmaps.
+Core mixins go in `dev.riftal.creator.mixin` (common), `dev.riftal.creator.mixin.fabric`, or
+`dev.riftal.creator.mixin.neoforge`, listed in the matching `creatormods*.mixins.json`. Feature
+mixins go in `dev.riftal.creator.features.<id>.mixin`, listed in `creatormods-<id>.mixins.json`
+(already registered in both metadata files). Loom >= 1.17 remaps mixins without an annotation
+processor, so there are no refmaps.

@@ -21,7 +21,7 @@ neoForge {
     }
     runs {
         configureEach {
-            systemProperty('neoforge.enabledGameTestNamespaces', mod_id)
+            systemProperty('neoforge.enabledGameTestNamespaces', "${mod_id},creator_toolkit,creator_colossus,creator_powers,creator_rules,creator_evolve,creator_events,creator_arsenal,creator_vault")
             ideName = "NeoForge ${it.name.capitalize()} (${project.path})" // Unify the run config names with fabric
         }
         client {
@@ -43,7 +43,7 @@ neoForge {
         gameTestServer {
             type = 'gameTestServer'
             gameDirectory = project.file('build/run/gameTestServer')
-            systemProperty('neoforge.enabledGameTestNamespaces', mod_id)
+            systemProperty('neoforge.enabledGameTestNamespaces', "${mod_id},creator_toolkit,creator_colossus,creator_powers,creator_rules,creator_evolve,creator_events,creator_arsenal,creator_vault")
         }
     }
     mods {

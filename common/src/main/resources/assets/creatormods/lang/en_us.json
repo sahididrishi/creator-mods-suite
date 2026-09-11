@@ -1,0 +1,7 @@
+{
+  "commands.creatormods.silent.on": "Silent mode on - replies go to the action bar and command echo is off.",
+  "commands.creatormods.silent.off": "Silent mode off - command feedback restored.",
+  "commands.creatormods.feature.unknown": "Unknown feature: %s",
+  "commands.creatormods.feature.set": "Feature %s set to %s. Restart the game to apply.",
+  "commands.creatormods.tasks": "%s scheduled task(s) queued."
+}

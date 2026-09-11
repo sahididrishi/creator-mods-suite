@@ -1,5 +1,7 @@
 package dev.riftal.creator.platform.services;
 
+import java.nio.file.Path;
+
 public interface IPlatformHelper {
 
     /**
@@ -16,6 +18,14 @@ public interface IPlatformHelper {
      * @return True if the mod is loaded, false otherwise.
      */
     boolean isModLoaded(String modId);
+
+    /**
+     * The loader's config directory, e.g. {@code .minecraft/config}. Used by
+     * {@code dev.riftal.creator.core.config.CreatorConfig}.
+     *
+     * @return The directory mod configs live in. May not exist yet.
+     */
+    Path getConfigDirectory();
 
     /**
      * Check if the game is currently in a development environment.
