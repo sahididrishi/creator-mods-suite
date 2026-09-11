@@ -57,6 +57,11 @@ public final class ColossusHud {
 
     private static void render(GuiGraphics graphics, DeltaTracker delta) {
         if (HudLayers.hudHidden()) {
+            // Drop the cache before returning, not after. F1 is the plan's own recording setup
+            // ("hidden HUD except boss bar/hotbar"), so this is the branch that runs for the whole
+            // shoot - and a static field still pointing at a dead boss pins that boss, and through
+            // it the entire ClientLevel, for the rest of the session.
+            cachedBoss = null;
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();

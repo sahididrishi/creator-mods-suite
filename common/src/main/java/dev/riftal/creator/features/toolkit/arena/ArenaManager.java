@@ -33,10 +33,17 @@ import java.util.UUID;
 public final class ArenaManager {
 
     /**
-     * Largest volume we will capture. A {@code StructureTemplate} holds every block in memory, so
-     * this is the line between "instant" and "the server hitches on camera".
+     * Largest volume we will capture: 64x64x64, the ceiling the plan's own performance note sets
+     * ("arena boxes up to 64x64x64 save in &lt; 250 ms").
+     *
+     * <p>{@code fillFromWorld} and {@code placeInWorld} both walk every block synchronously inside
+     * one server tick, and a {@code StructureTemplate} holds the result in memory, so this is the
+     * line between "instant" and "the server hitches on camera" - and the director types
+     * {@code /toolkit arena reset} between takes, with the camera running. The quick-save box
+     * (25x9x25 = 5,625 blocks) is the real design point; this is the deliberate upper bound for a
+     * hand-typed corner pair.
      */
-    public static final long MAX_VOLUME = 512_000L;
+    public static final long MAX_VOLUME = 262_144L;
 
     /** Result of a save attempt. */
     public record SaveResult(ArenaSnapshot snapshot, String error) {
@@ -72,7 +79,12 @@ public final class ArenaManager {
         CompoundTag blocks = template.save(new CompoundTag());
 
         List<CompoundTag> entities = new ArrayList<>();
-        for (Entity entity : level.getEntities((Entity) null, boxOf(min, max), e -> !(e instanceof Player))) {
+        // Passengers are excluded on purpose: Entity#saveAsPassenger writes the whole "Passengers"
+        // list into its vehicle's tag, so a skeleton on a skeleton horse would otherwise be
+        // captured twice - once inside the horse and once standalone - and every reset would leave
+        // a loose duplicate of the rider next to the mounted pair.
+        for (Entity entity : level.getEntities((Entity) null, boxOf(min, max),
+                e -> !(e instanceof Player) && !e.isPassenger())) {
             CompoundTag tag = new CompoundTag();
             if (entity.saveAsPassenger(tag)) {
                 entities.add(tag);

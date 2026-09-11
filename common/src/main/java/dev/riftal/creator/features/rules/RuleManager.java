@@ -8,12 +8,14 @@ import dev.riftal.creator.features.rules.api.RuleRegistry;
 import dev.riftal.creator.features.rules.net.RuleToastPayload;
 import dev.riftal.creator.features.rules.net.RulesSyncPayload;
 import dev.riftal.creator.features.rules.preset.RulePreset;
+import dev.riftal.creator.features.rules.preset.RulePresetPlan;
 import dev.riftal.creator.features.rules.preset.RulePresets;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
@@ -48,7 +50,13 @@ public final class RuleManager {
         /** No rule with that id is registered. */
         UNKNOWN,
         /** There is no running server to change anything on. */
-        NO_SERVER
+        NO_SERVER,
+        /** {@code /rule <id> fire}: the rule did its thing immediately. */
+        FIRED,
+        /** {@code /rule <id> fire}: the rule is registered but not switched on. */
+        INACTIVE,
+        /** {@code /rule <id> fire}: this rule has nothing to fire on demand. */
+        UNSUPPORTED
     }
 
     /** How often rule-private state (timers) is flushed into the SavedData, in ticks. */
@@ -63,8 +71,14 @@ public final class RuleManager {
 
     // ---------------------------------------------------------------- lifecycle
 
-    /** First server tick of a world: load the saved set and switch those rules on for real. */
-    public static void start(MinecraftServer newServer) {
+    /**
+     * First server tick of a world: load the saved set and switch those rules on for real.
+     *
+     * @return true when the engine is now running. A {@code false} means the overworld was not
+     *         ready yet and the caller must try again on a later tick - if it latched on this
+     *         server anyway, the engine would stay dead for the whole session
+     */
+    public static boolean start(MinecraftServer newServer) {
         stop();
         server = newServer;
         context = new RuleContext(newServer);
@@ -74,7 +88,7 @@ public final class RuleManager {
             LOG.warn("[rules] no overworld yet; rule state will load on a later tick");
             server = null;
             context = null;
-            return;
+            return false;
         }
         data = overworld.getDataStorage().computeIfAbsent(RuleSavedData.factory(), RuleSavedData.FILE_NAME);
 
@@ -91,14 +105,33 @@ public final class RuleManager {
             guard(rule, "onEnable", () -> rule.onEnable(context));
         }
         data.setActive(ACTIVE);
+        // Anyone already placed in the world this tick never gets another sync otherwise: the join
+        // hook runs before start() on the very first tick and bails out on !isRunning().
+        broadcast();
         LOG.info("[rules] {} of {} rule(s) active in this world: {}",
                 ACTIVE.size(), RuleRegistry.size(), ACTIVE);
+        return true;
     }
 
-    /** Server shutting down. Flush timers, drop every reference, cancel our scheduled work. */
+    /**
+     * Server shutting down. Flush timers, run every active rule's {@code onDisable} so nothing is
+     * left stamped on the world, drop every reference and cancel our scheduled work.
+     *
+     * <p>The {@code onDisable} loop is not optional: {@code giant_mobs} writes a persistent entity
+     * tag and {@link Rule} promises that {@code onDisable} undoes everything {@code onEnable} did.
+     * Skipping it also left the rule singletons carrying the previous world's per-player maps.
+     */
     public static void stop() {
         if (server != null && data != null) {
             persistRuleState();
+        }
+        if (context != null) {
+            for (String id : List.copyOf(ACTIVE)) {
+                Rule rule = RuleRegistry.byId(id);
+                if (rule != null) {
+                    guard(rule, "onDisable", () -> rule.onDisable(context));
+                }
+            }
         }
         ACTIVE.clear();
         TickScheduler.cancelAll(RuleIds.SCHED_EXPLODE);
@@ -159,16 +192,22 @@ public final class RuleManager {
         return List.copyOf(ACTIVE);
     }
 
+    /**
+     * Whether clients should draw the rule list. The {@code creator_rules.rulesHud} gamerule is
+     * authoritative when it registered, so a data pack or {@code /gamerule} can hide the HUD without
+     * an op; the per-world saved flag is the fallback.
+     */
     public static boolean hudEnabled() {
-        return data == null || data.hud();
+        boolean saved = data == null || data.hud();
+        return RuleGameRules.hud(server, saved);
     }
 
     /** Shows or hides the client-side rule list. Broadcast immediately. */
     public static void setHudEnabled(boolean value) {
-        if (data == null) {
-            return;
+        if (data != null) {
+            data.setHud(value);
         }
-        data.setHud(value);
+        RuleGameRules.setHud(server, value);
         broadcast();
     }
 
@@ -194,6 +233,31 @@ public final class RuleManager {
         return on ? Result.ENABLED : Result.DISABLED;
     }
 
+    /**
+     * Runs one rule's effect immediately - {@code /rule item_roulette fire} instead of waiting the
+     * full minute. Only rules that override {@link Rule#fire} answer to it.
+     */
+    public static Result fire(String id) {
+        Rule rule = RuleRegistry.byId(id);
+        if (rule == null) {
+            return Result.UNKNOWN;
+        }
+        if (!isRunning()) {
+            return Result.NO_SERVER;
+        }
+        if (!ACTIVE.contains(id)) {
+            return Result.INACTIVE;
+        }
+        boolean[] fired = {false};
+        guard(rule, "fire", () -> fired[0] = rule.fire(context));
+        if (!fired[0]) {
+            return Result.UNSUPPORTED;
+        }
+        persistRuleState();
+        LOG.info("[rules] {} fired on demand", id);
+        return Result.FIRED;
+    }
+
     /** Flips one rule. */
     public static Result toggle(String id) {
         Rule rule = RuleRegistry.byId(id);
@@ -212,28 +276,26 @@ public final class RuleManager {
         if (!isRunning()) {
             return -1;
         }
-        boolean changed = false;
-        if (preset.replace()) {
-            for (String id : List.copyOf(ACTIVE)) {
-                if (!preset.rules().contains(id)) {
-                    Rule rule = RuleRegistry.byId(id);
-                    if (rule != null) {
-                        applyToggle(rule, false);
-                        changed = true;
-                    }
-                }
-            }
-        }
-        for (String id : preset.rules()) {
+        RulePresetPlan plan = RulePresetPlan.of(active(), preset);
+        List<String> changed = new ArrayList<>();
+        for (String id : plan.disable()) {
             Rule rule = RuleRegistry.byId(id);
-            if (rule != null && !ACTIVE.contains(id)) {
-                applyToggle(rule, true);
-                changed = true;
+            if (rule != null) {
+                applyToggle(rule, false);
+                changed.add(id);
             }
         }
-        if (changed) {
+        for (String id : plan.enable()) {
+            Rule rule = RuleRegistry.byId(id);
+            if (rule != null) {
+                applyToggle(rule, true);
+                changed.add(id);
+            }
+        }
+        if (!changed.isEmpty()) {
             persistActive();
             broadcast();
+            announce(changed);
         }
         LOG.info("[rules] preset '{}' applied; {} rule(s) active", preset.id(), ACTIVE.size());
         return ACTIVE.size();
@@ -249,18 +311,34 @@ public final class RuleManager {
             return -1;
         }
         int count = ACTIVE.size();
+        List<String> changed = new ArrayList<>();
         for (String id : List.copyOf(ACTIVE)) {
             Rule rule = RuleRegistry.byId(id);
             if (rule != null) {
                 applyToggle(rule, false);
+                changed.add(id);
             }
         }
         if (count > 0) {
             persistActive();
             broadcast();
+            announce(changed);
             LOG.info("[rules] all {} rule(s) switched off", count);
         }
         return count;
+    }
+
+    /**
+     * One toast per rule that actually changed. Without this a preset repopulated the HUD in total
+     * silence - no click, no highlighted row - which is the single most visible beat of the demo.
+     */
+    private static void announce(List<String> ids) {
+        if (server == null) {
+            return;
+        }
+        for (String id : ids) {
+            Payloads.sendToAll(server, new RuleToastPayload(id, ACTIVE.contains(id)));
+        }
     }
 
     private static void applyToggle(Rule rule, boolean on) {
@@ -303,6 +381,32 @@ public final class RuleManager {
             }
         }
         syncTo(player);
+    }
+
+    /** A player finished changing dimension, or was teleported inside one. */
+    public static void onPlayerChangedDimension(ServerPlayer player) {
+        if (!isRunning()) {
+            return;
+        }
+        for (String id : List.copyOf(ACTIVE)) {
+            Rule rule = RuleRegistry.byId(id);
+            if (rule != null) {
+                guard(rule, "onPlayerChangedDimension", () -> rule.onPlayerChangedDimension(context, player));
+            }
+        }
+    }
+
+    /** An entity was just added to a server level. Hot path: it runs for every spawn in the game. */
+    public static void onEntityJoin(ServerLevel level, Entity entity) {
+        if (!isRunning() || ACTIVE.isEmpty()) {
+            return;
+        }
+        for (String id : List.copyOf(ACTIVE)) {
+            Rule rule = RuleRegistry.byId(id);
+            if (rule != null) {
+                guard(rule, "onEntityJoin", () -> rule.onEntityJoin(context, level, entity));
+            }
+        }
     }
 
     /** A survival player broke a block; it is already gone from the world. */

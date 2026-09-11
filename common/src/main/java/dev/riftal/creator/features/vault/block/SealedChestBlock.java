@@ -8,6 +8,7 @@ import dev.riftal.creator.features.vault.VaultFeature;
 import dev.riftal.creator.features.vault.block.entity.SealedChestBlockEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
@@ -34,12 +35,16 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.storage.loot.LootTable;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -159,11 +164,83 @@ public class SealedChestBlock extends BaseEntityBlock {
     }
 
     /**
-     * Puts a Sealed Chest back at {@code pos}, discarding whatever was there. Used by
-     * {@code /vault reset} through the altar.
+     * Puts a Sealed Chest back at {@code pos} carrying this feature's default loot table.
+     *
+     * @see #reseal(ServerLevel, BlockPos, Direction, ResourceKey, long)
      */
     public static void reseal(ServerLevel level, BlockPos pos, Direction facing) {
+        reseal(level, pos, facing, VaultFeature.CHEST_LOOT_TABLE, 0L);
+    }
+
+    /**
+     * Puts a Sealed Chest back at {@code pos}, discarding whatever was there. Used by
+     * {@code /vault reset} through the altar.
+     *
+     * <p>{@code setBlock} creates a brand new {@link SealedChestBlockEntity} with the field
+     * defaults, so the per-chest loot override {@link #unseal} reads has to be written back onto
+     * it explicitly - otherwise a chest dressed with a custom table in the structure NBT silently
+     * reverts to the default one after the first reset.
+     *
+     * @param lootTable the table the re-sealed chest will hand on when it is next unsealed
+     * @param lootSeed  that chest's own seed; 0 means "roll fresh loot on first open"
+     */
+    public static void reseal(ServerLevel level, BlockPos pos, Direction facing,
+                              ResourceKey<LootTable> lootTable, long lootSeed) {
         level.setBlock(pos, VaultFeature.SEALED_CHEST.get().defaultBlockState().setValue(FACING, facing),
                 Block.UPDATE_ALL);
+        if (level.getBlockEntity(pos) instanceof SealedChestBlockEntity sealed) {
+            sealed.setLootTable(lootTable);
+            sealed.setLootTableSeed(lootSeed);
+        } else {
+            LOG.warn("[vault] re-sealed chest at {} did not produce a SealedChestBlockEntity", pos);
+        }
+    }
+
+    /**
+     * Unseals every Sealed Chest in a cube of {@code radius} around {@code centre}, ignoring
+     * altars entirely.
+     *
+     * <p>The recovery path for the one accident that is otherwise unfixable: an altar mined in
+     * creative while dressing a set takes its chest bindings with it, and a Sealed Chest is
+     * unbreakable, unopenable, unpushable and not a container, so nothing else in this feature can
+     * ever get at it again. {@code /vault unseal} falls back to this when there is no altar.
+     *
+     * <p>Only walks loaded chunks' block-entity maps - never {@code getBlockState} over a cube,
+     * which would generate terrain on the server thread.
+     *
+     * @return how many chests were opened
+     */
+    public static int unsealAround(ServerLevel level, BlockPos centre, int radius, long lootSeed) {
+        double radiusSqr = (double) radius * radius;
+        int minChunkX = SectionPos.blockToSectionCoord(centre.getX() - radius);
+        int maxChunkX = SectionPos.blockToSectionCoord(centre.getX() + radius);
+        int minChunkZ = SectionPos.blockToSectionCoord(centre.getZ() - radius);
+        int maxChunkZ = SectionPos.blockToSectionCoord(centre.getZ() + radius);
+
+        List<BlockPos> found = new ArrayList<>();
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                if (!level.getChunkSource().hasChunk(cx, cz)) {
+                    continue;
+                }
+                LevelChunk chunk = level.getChunk(cx, cz);
+                for (Map.Entry<BlockPos, BlockEntity> entry : chunk.getBlockEntities().entrySet()) {
+                    if (!(entry.getValue() instanceof SealedChestBlockEntity)) {
+                        continue;
+                    }
+                    if (entry.getKey().distSqr(centre) <= radiusSqr) {
+                        found.add(entry.getKey().immutable());
+                    }
+                }
+            }
+        }
+
+        int unsealed = 0;
+        for (BlockPos pos : found) {
+            if (unseal(level, pos, lootSeed)) {
+                unsealed++;
+            }
+        }
+        return unsealed;
     }
 }

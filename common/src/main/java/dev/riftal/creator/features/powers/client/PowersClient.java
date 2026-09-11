@@ -21,7 +21,7 @@ import static dev.riftal.creator.Constants.LOG;
  * {@code Class.forName} into this feature's own class in the {@code fabric} module. If it is ever
  * missing the keys still <em>work</em> - constructing a {@code KeyMapping} is enough for
  * {@code consumeClick()} - they just would not be listed in the controls screen, and
- * {@link #pollKeysIfNotWired()} keeps them polling.
+ * {@link #tickIfNotWired()} keeps them polling.
  */
 public final class PowersClient {
 
@@ -43,15 +43,32 @@ public final class PowersClient {
         bootstrapFabricGlue();
     }
 
-    /** Called by the loader glue once it owns the per-tick key polling. */
+    /** Called by the loader glue once it owns the per-tick hook. */
     public static void markKeyPollingWired() {
         keyPollingWired = true;
     }
 
-    /** Fallback polling for the (unexpected) case that no loader glue claimed the job. */
-    public static void pollKeysIfNotWired() {
-        if (!keyPollingWired) {
+    /**
+     * One client tick: the HUD mirror's housekeeping first, then the key queue.
+     *
+     * <p>Called from the loader's own client-tick event, never from a render callback - the
+     * cooldown edge detection that plays the ready chime has to run once per tick, not once per
+     * frame, and {@code consumeClick()} must not be drained by the renderer.
+     *
+     * @param acceptKeys false while a screen is open or before the player exists, so the ability
+     *                   keys do not fire behind a menu - the housekeeping still runs
+     */
+    public static void clientTick(boolean acceptKeys) {
+        ClientPowers.clientTick();
+        if (acceptKeys) {
             PowerKeys.poll();
+        }
+    }
+
+    /** Fallback for the (unexpected) case that no loader glue claimed the per-tick job. */
+    public static void tickIfNotWired() {
+        if (!keyPollingWired) {
+            clientTick(true);
         }
     }
 

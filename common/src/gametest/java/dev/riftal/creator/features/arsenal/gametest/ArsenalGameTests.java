@@ -11,6 +11,7 @@ import dev.riftal.creator.features.arsenal.item.SoulScytheItem;
 import dev.riftal.creator.features.arsenal.mechanic.DamageMath;
 import dev.riftal.creator.features.arsenal.mechanic.GrappleManager;
 import dev.riftal.creator.features.arsenal.mechanic.GravitySlam;
+import dev.riftal.creator.features.arsenal.mechanic.Impact;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
@@ -24,6 +25,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.entity.LightningBolt;
+import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -51,6 +53,21 @@ import java.util.List;
  * {@link GameTestHelper#makeMockServerPlayerInLevel()} rather than {@code makeMockPlayer}, and
  * every one of them hands the player back to {@link #release} so it does not linger in the server's
  * player list and leak into a later test in the same batch.
+ *
+ * <p><b>Why every combat test carries its own {@code batch} on both stubs.</b> Tests that share a
+ * batch run <em>simultaneously</em> in arenas the grid spawner packs 14 blocks apart
+ * ({@code StructureGridSpawner.SPACE_BETWEEN_COLUMNS} = 5 either side of a 9x9x9 {@code empty}),
+ * and they share one {@link net.minecraft.server.level.ServerLevel}. Every area-of-effect helper in
+ * this mod selects by world distance, not by arena: a neighbour's sweep with a radius wider than
+ * that pitch reaches straight into ours and sets our zombies alight or hurts them. That is not
+ * hypothetical - {@code stormArrowUnchargedNeverStrikes} failed on NeoForge for exactly this
+ * reason, its zombie lit on fire by a 32-block burn sweep in a batch-mate from another feature 22
+ * blocks away, while the same test passed on Fabric only because that loader happened to lay the
+ * two arenas farther apart. Arena layout is not a guarantee we may lean on, so any test here that
+ * asserts on health, fire, mob effects, position or motion runs alone in a batch of one; the four
+ * that only read registries and item stacks are immune and stay in {@code defaultBatch}. Arsenal's
+ * own reach tops out at {@code DamageMath.SLAM_RADIUS} (6), comfortably inside the pitch, so this
+ * is about keeping foreign effects out rather than containing ours.
  */
 public final class ArsenalGameTests {
 
@@ -419,6 +436,186 @@ public final class ArsenalGameTests {
         helper.succeedWhen(() -> {
             helper.assertTrue(hook.isRemoved(), "the cut hook should fly home and despawn");
             helper.assertFalse(GrappleManager.hasHook(player), "and the player should be hook-free");
+            release(helper, player);
+        });
+    }
+
+    /**
+     * The hammer's touchdown damage is not swallowed by the fall damage the slam itself caused.
+     *
+     * <p>This is the seam, tested exactly rather than end to end, because the end-to-end number
+     * depends on how far Levitation II happened to lift the mob. {@code GravitySlam.tick()} hurts a
+     * victim in the same server tick it landed, and {@code Entity#move -> checkFallDamage} has
+     * already run by then and left {@code invulnerableTime = 20, lastHurt = fallDamage}, so a plain
+     * {@code hurt} used to apply only {@code slam - fall}: 6.0 of hammer on 4 points of fall damage
+     * landed as 2, and the plan's "everything dead or crawling" beat was eight healthy zombies
+     * bouncing once.
+     *
+     * <p>The control victim takes the same blow with no fall damage in front of it. Both numbers go
+     * through the same armour reduction, so comparing them needs no vanilla damage arithmetic here.
+     */
+    public static void slamDamageSurvivesTheFallDamageWindow(GameTestHelper helper) {
+        ServerPlayer player = spawnPlayer(helper, new Vec3(4.5D, 1.0D, 4.5D), 0.0F);
+        try {
+            DamageSource source = helper.getLevel().damageSources().playerAttack(player);
+            Zombie landed = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(2, 1, 2));
+            Zombie control = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(6, 1, 6));
+
+            // Fall damage first, exactly as a real touchdown delivers it.
+            landed.hurt(source, 4.0F);
+            float afterFall = landed.getHealth();
+            helper.assertTrue(landed.invulnerableTime > 10,
+                    "the fall should have opened an invulnerability window, or this test proves nothing");
+
+            Impact.hurtThroughCooldown(landed, source, DamageMath.SLAM_CENTRE_DAMAGE);
+            float slamLoss = afterFall - landed.getHealth();
+
+            float controlBefore = control.getHealth();
+            Impact.hurtThroughCooldown(control, source, DamageMath.SLAM_CENTRE_DAMAGE);
+            float soloLoss = controlBefore - control.getHealth();
+
+            helper.assertTrue(soloLoss > 0.0F, "the control victim should have taken the slam");
+            helper.assertTrue(Math.abs(slamLoss - soloLoss) < EPSILON,
+                    "the slam must land in full on top of fall damage: it took " + slamLoss
+                            + " where an undamaged victim took " + soloLoss);
+        } finally {
+            release(helper, player);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * The blast hits the mob the arrow physically struck as hard as it hits that mob's neighbours.
+     *
+     * <p>{@code onHitEntity} runs {@code super} first - which deals the arrow's own damage and opens
+     * the victim's invulnerability window - and then calls the blast, so the target you aimed at
+     * used to take {@code 10 - arrowDamage} while everything standing next to it took the full 10.
+     * The arrow is given a large base damage here precisely so that swallowing it is measurable:
+     * with the old code the total could never exceed {@code max(arrowDamage, 10)}.
+     */
+    public static void stormArrowBlastFullyHitsWhatItStruck(GameTestHelper helper) {
+        helper.setNight();
+        Zombie direct = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(4, 1, 4));
+        Zombie bystander = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(6, 1, 4));
+        float directFull = direct.getHealth();
+        float bystanderFull = bystander.getHealth();
+
+        StormArrowEntity arrow = new StormArrowEntity(ArsenalFeature.STORM_ARROW.get(), helper.getLevel());
+        Vec3 from = helper.absoluteVec(new Vec3(4.5D, 5.0D, 4.5D));
+        arrow.setPos(from.x, from.y, from.z);
+        arrow.setBaseDamage(6.0D);
+        arrow.setCharged(true);
+        arrow.setDeltaMovement(0.0D, -1.0D, 0.0D);
+        helper.getLevel().addFreshEntity(arrow);
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(arrow.isRemoved(), "the arrow should have struck and discarded itself");
+            float directLoss = directFull - direct.getHealth();
+            float bystanderLoss = bystanderFull - bystander.getHealth();
+            helper.assertTrue(bystanderLoss > 0.0F, "the blast should have reached the bystander");
+            helper.assertTrue(directLoss > DamageMath.LIGHTNING_CENTRE_DAMAGE + 2.0F,
+                    "the struck mob should take the arrow AND the whole blast, but it lost only "
+                            + directLoss + " (the bystander lost " + bystanderLoss + ")");
+        });
+    }
+
+    /**
+     * When vanilla's own sweep already fired for this swing, ours stays out of the way - but the
+     * souls of whatever that sweep killed are still collected.
+     *
+     * <p>Vanilla runs its sweep inline in {@code Player#attack}, between
+     * {@code Item#getAttackDamageBonus} and {@code Item#postHurtEnemy}, over this same box and with
+     * this weapon's own sweeping ratio - so its neighbour damage is roughly 7.75 against our
+     * {@code dealt x 0.5}. Ours then hit the invulnerability window and did nothing at all, while
+     * still firing a second knockback, particle and sound. The knockback is what this test watches,
+     * because "did no damage" is true both before and after the fix.
+     *
+     * <p>The vanilla sweep is simulated rather than provoked: reaching its real condition needs an
+     * attack-strength-charged, grounded, non-sprinting swing that a mock player cannot produce.
+     */
+    public static void scytheDoesNotSweepOnTopOfVanillasSweep(GameTestHelper helper) {
+        helper.setNight();
+        ServerPlayer player = spawnPlayer(helper, new Vec3(2.5D, 1.0D, 4.5D), 0.0F);
+        player.setAbsorptionAmount(0.0F);
+        Zombie target = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(3, 1, 4));
+        Zombie survivor = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(4, 1, 4));
+        Zombie doomed = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(2, 1, 5));
+        doomed.setHealth(1.0F);
+
+        SoulScytheItem scythe = (SoulScytheItem) ArsenalFeature.SOUL_SCYTHE.get();
+        ItemStack stack = new ItemStack(scythe);
+        player.setItemInHand(InteractionHand.MAIN_HAND, stack);
+
+        DamageSource source = helper.getLevel().damageSources().playerAttack(player);
+        scythe.getAttackDamageBonus(target, 8.0F, source);
+        target.hurt(source, 8.0F);
+
+        // Vanilla's sweep, as it would have run right here.
+        survivor.hurt(source, 7.75F);
+        doomed.hurt(source, 7.75F);
+        survivor.setDeltaMovement(Vec3.ZERO);
+        float survivorHealth = survivor.getHealth();
+        helper.assertTrue(doomed.isDeadOrDying(), "the simulated vanilla sweep should have killed the 1 HP zombie");
+
+        scythe.postHurtEnemy(stack, target, player);
+
+        helper.assertTrue(survivor.getHealth() == survivorHealth,
+                "our sweep must not run on a swing vanilla already swept");
+        helper.assertTrue(survivor.getDeltaMovement().equals(Vec3.ZERO),
+                "not even the knockback: the neighbour was pushed a second time, delta is "
+                        + survivor.getDeltaMovement());
+
+        // ... and the kill vanilla's sweep made still pays out a soul.
+        helper.runAfterDelay(30L, () -> {
+            helper.assertTrue(player.getAbsorptionAmount() >= DamageMath.ABSORPTION_PER_SOUL - EPSILON,
+                    "a neighbour killed by vanilla's sweep should still release a soul, but absorption is "
+                            + player.getAbsorptionAmount());
+            release(helper, player);
+            helper.succeed();
+        });
+    }
+
+    /**
+     * The reel really does carry the player across the gap - the plan's {@code player.getX() > 10}.
+     *
+     * <p>A mock GameTest player has no client and no ticking connection, so
+     * {@code ServerPlayer#doTick} never runs and nothing integrates {@code setDeltaMovement} on its
+     * own; {@link #grappleHookBitesAndReelsThePlayer} therefore asserts the velocity. Here the
+     * missing half is supplied by hand - {@code Entity#move(MoverType.SELF, delta)} is exactly what
+     * a ticking player's physics would do with that velocity, collisions included - so this covers
+     * the one thing the velocity assertion cannot: that the vector chosen actually moves the player
+     * at the wall rather than into it or through the floor.
+     */
+    public static void grappleReelCarriesThePlayerAcrossTheGap(GameTestHelper helper) {
+        for (int y = 1; y <= 4; y++) {
+            for (int z = 3; z <= 6; z++) {
+                helper.setBlock(new BlockPos(7, y, z), Blocks.STONE);
+            }
+        }
+
+        Vec3 start = new Vec3(1.5D, 1.0D, 4.5D);
+        ServerPlayer player = spawnPlayer(helper, start, yawTowards(start, new Vec3(7.0D, 2.5D, 4.5D)));
+        double startX = player.getX();
+        GrappleBladeItem blade = (GrappleBladeItem) ArsenalFeature.GRAPPLE_BLADE.get();
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(blade));
+        blade.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+
+        boolean[] reeled = {false};
+        helper.onEachTick(() -> {
+            if (GrappleManager.isPulling(player)) {
+                reeled[0] = true;
+                player.move(MoverType.SELF, player.getDeltaMovement());
+            }
+        });
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(reeled[0], "the hook should have bitten and started a pull");
+            helper.assertFalse(GrappleManager.isPulling(player), "the pull should have finished");
+            helper.assertTrue(player.getX() - startX > 3.0D,
+                    "the reel should have dragged the player at the wall, but it moved "
+                            + (player.getX() - startX) + " blocks");
+            helper.assertTrue(player.fallDistance == 0.0F,
+                    "the landing after a reel is a soft one");
             release(helper, player);
         });
     }

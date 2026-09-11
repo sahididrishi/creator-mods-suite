@@ -29,6 +29,16 @@ class AttackSelectorTest {
     private static final double NEAR_SQ = 9.0D;    // 3 blocks: inside slam and combo range
     private static final double FAR_SQ = 100.0D;   // 10 blocks: outside both melee ranges
 
+    /**
+     * Everything ready except the summon, which has just been spent.
+     *
+     * <p>The summon is a schedule, not a weighted candidate: while it is due it wins outright, so
+     * every test below that is about the <em>weighted</em> pick has to put it on cooldown first or
+     * it would be measuring the schedule instead.
+     */
+    private static final Cooldowns SUMMON_SPENT =
+            new Cooldowns(0, 0, AttackKind.SUMMON.cooldownTicks(), 0);
+
     private static RandomSource seeded() {
         return RandomSource.create(20260911L);
     }
@@ -72,18 +82,17 @@ class AttackSelectorTest {
     }
 
     @Test
-    void phaseTwoAddsLavaRainAndSummonButNeverTheCombo() {
-        Set<AttackKind> seen = picks(BossPhase.P2, NEAR_SQ, Cooldowns.READY, 0, 10_000);
-        assertEquals(EnumSet.of(AttackKind.SLAM, AttackKind.LAVA_RAIN, AttackKind.SUMMON), seen);
+    void phaseTwoAddsLavaRainButNeverTheCombo() {
+        Set<AttackKind> seen = picks(BossPhase.P2, NEAR_SQ, SUMMON_SPENT, 0, 10_000);
+        assertEquals(EnumSet.of(AttackKind.SLAM, AttackKind.LAVA_RAIN), seen);
         assertFalse(seen.contains(AttackKind.COMBO));
     }
 
     @Test
     void phaseThreeAddsTheCombo() {
-        Set<AttackKind> seen = picks(BossPhase.P3, NEAR_SQ, Cooldowns.READY, 0, 10_000);
+        Set<AttackKind> seen = picks(BossPhase.P3, NEAR_SQ, SUMMON_SPENT, 0, 10_000);
         assertTrue(seen.contains(AttackKind.COMBO), "phase 3 must be able to combo");
-        assertEquals(EnumSet.of(AttackKind.SLAM, AttackKind.LAVA_RAIN, AttackKind.SUMMON,
-                AttackKind.COMBO), seen);
+        assertEquals(EnumSet.of(AttackKind.SLAM, AttackKind.LAVA_RAIN, AttackKind.COMBO), seen);
     }
 
     @Test
@@ -92,13 +101,13 @@ class AttackSelectorTest {
         double betweenSq = 36.0D;
         assertTrue(betweenSq <= AttackSelector.SLAM_RANGE_SQ);
         assertTrue(betweenSq > AttackSelector.COMBO_RANGE_SQ);
-        assertFalse(picks(BossPhase.P3, betweenSq, Cooldowns.READY, 0, 5_000)
+        assertFalse(picks(BossPhase.P3, betweenSq, SUMMON_SPENT, 0, 5_000)
                 .contains(AttackKind.COMBO));
     }
 
     @Test
     void aDistantTargetIsRainedOnRatherThanChased() {
-        Map<AttackKind, Integer> counts = histogram(BossPhase.P2, FAR_SQ, Cooldowns.READY, 0, 10_000);
+        Map<AttackKind, Integer> counts = histogram(BossPhase.P2, FAR_SQ, SUMMON_SPENT, 0, 10_000);
         assertFalse(counts.containsKey(AttackKind.SLAM), "slam cannot reach 10 blocks");
         int lava = counts.getOrDefault(AttackKind.LAVA_RAIN, 0);
         assertTrue(lava > 6_000, "lava rain should dominate at range, got " + lava + "/10000");
@@ -110,11 +119,41 @@ class AttackSelectorTest {
                 .contains(AttackKind.SUMMON));
         assertTrue(picks(BossPhase.P2, NEAR_SQ, Cooldowns.READY, AttackSelector.MINION_CAP - 1, 5_000)
                 .contains(AttackKind.SUMMON));
+        assertFalse(AttackSelector.summonIsDue(BossPhase.P2, Cooldowns.READY,
+                AttackSelector.MINION_CAP), "a full arena owes no summon");
+    }
+
+    /**
+     * The plan's MVP says "Summon 3 Ashen Minions every 20 s", and the demo has the minions rising
+     * on a named beat. A weighted candidate cannot promise either: the selector therefore treats a
+     * due summon as the answer, not as one option among several.
+     */
+    @Test
+    void theSummonIsAScheduleRatherThanARoll() {
+        assertTrue(AttackSelector.summonIsDue(BossPhase.P2, Cooldowns.READY, 0));
+        assertTrue(AttackSelector.summonIsDue(BossPhase.P3, Cooldowns.READY, 0));
+        // Even at the distance where lava rain outweighs everything else four to one.
+        assertEquals(EnumSet.of(AttackKind.SUMMON),
+                picks(BossPhase.P2, FAR_SQ, Cooldowns.READY, 0, 5_000));
+        assertEquals(EnumSet.of(AttackKind.SUMMON),
+                picks(BossPhase.P3, NEAR_SQ, Cooldowns.READY, 0, 5_000));
+    }
+
+    @Test
+    void theSummonScheduleIsSilentInPhaseOneAndOnCooldown() {
+        assertFalse(AttackSelector.summonIsDue(BossPhase.P1, Cooldowns.READY, 0),
+                "phase 1 has no minions at all");
+        assertFalse(AttackSelector.summonIsDue(BossPhase.P2, SUMMON_SPENT, 0),
+                "the 20-second timer has to run down first");
+        assertFalse(picks(BossPhase.P1, NEAR_SQ, Cooldowns.READY, 0, 5_000)
+                .contains(AttackKind.SUMMON));
+        assertFalse(picks(BossPhase.P3, NEAR_SQ, SUMMON_SPENT, 0, 5_000)
+                .contains(AttackKind.SUMMON));
     }
 
     @Test
     void anAttackOnCooldownIsNeverPicked() {
-        Cooldowns slamCooling = new Cooldowns(37, 0, 0, 0);
+        Cooldowns slamCooling = new Cooldowns(37, 0, AttackKind.SUMMON.cooldownTicks(), 0);
         assertSame(AttackKind.NONE, AttackSelector.choose(BossPhase.P1, NEAR_SQ, slamCooling,
                 0, (AttackKind) null, seeded()));
         assertFalse(picks(BossPhase.P2, NEAR_SQ, slamCooling, 0, 5_000).contains(AttackKind.SLAM));
@@ -137,10 +176,10 @@ class AttackSelectorTest {
     void theSameAttackNeverRunsTwiceInARow() {
         RandomSource random = seeded();
         for (int i = 0; i < 5_000; i++) {
-            AttackKind pick = AttackSelector.choose(BossPhase.P2, NEAR_SQ, Cooldowns.READY, 0,
+            AttackKind pick = AttackSelector.choose(BossPhase.P3, NEAR_SQ, SUMMON_SPENT, 0,
                     AttackKind.SLAM, random);
             assertFalse(pick == AttackKind.SLAM,
-                    "slam repeated even though lava rain and summon were available");
+                    "slam repeated even though lava rain and the combo were available");
             assertFalse(pick == AttackKind.NONE, "something should still have been available");
         }
     }
@@ -152,7 +191,7 @@ class AttackSelectorTest {
         history.addLast(AttackKind.SLAM);   // most recent
         RandomSource random = seeded();
         for (int i = 0; i < 2_000; i++) {
-            assertFalse(AttackSelector.choose(BossPhase.P2, NEAR_SQ, Cooldowns.READY, 0,
+            assertFalse(AttackSelector.choose(BossPhase.P3, NEAR_SQ, SUMMON_SPENT, 0,
                     history, random) == AttackKind.SLAM);
         }
     }
@@ -186,9 +225,9 @@ class AttackSelectorTest {
         RandomSource a = seeded();
         RandomSource b = seeded();
         for (int i = 0; i < 100; i++) {
-            first.add(AttackSelector.choose(BossPhase.P3, NEAR_SQ, Cooldowns.READY, 0,
+            first.add(AttackSelector.choose(BossPhase.P3, NEAR_SQ, SUMMON_SPENT, 0,
                     (AttackKind) null, a));
-            second.add(AttackSelector.choose(BossPhase.P3, NEAR_SQ, Cooldowns.READY, 0,
+            second.add(AttackSelector.choose(BossPhase.P3, NEAR_SQ, SUMMON_SPENT, 0,
                     (AttackKind) null, b));
         }
         assertEquals(first, second);
@@ -197,7 +236,7 @@ class AttackSelectorTest {
 
     @Test
     void everyPickIsAnAttackTheGoalsCanActuallyRun() {
-        for (AttackKind pick : picks(BossPhase.P3, NEAR_SQ, Cooldowns.READY, 0, 10_000)) {
+        for (AttackKind pick : picks(BossPhase.P3, NEAR_SQ, SUMMON_SPENT, 0, 10_000)) {
             assertTrue(pick.isChoosable(), pick + " has no goal behind it");
         }
     }

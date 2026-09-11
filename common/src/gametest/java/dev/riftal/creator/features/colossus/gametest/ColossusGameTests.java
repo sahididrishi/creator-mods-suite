@@ -6,6 +6,7 @@ import dev.riftal.creator.features.colossus.AttackKind;
 import dev.riftal.creator.features.colossus.AttackSelector;
 import dev.riftal.creator.features.colossus.BossPhase;
 import dev.riftal.creator.features.colossus.ColossusFeature;
+import dev.riftal.creator.features.colossus.FirePatches;
 import dev.riftal.creator.features.colossus.Shockwave;
 import dev.riftal.creator.features.colossus.entity.AshenColossusEntity;
 import dev.riftal.creator.features.colossus.entity.AshenMinionEntity;
@@ -20,6 +21,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.animal.Pig;
+import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashSet;
@@ -42,6 +44,10 @@ import java.util.UUID;
  * <p>Most tests spawn the boss with {@code spawnWithNoFreeWill}, which strips its goals. That is
  * deliberate: every behaviour asserted here is driven straight through the entity's own public API,
  * so the tests are deterministic instead of waiting on a weighted attack roll and a pathfind.
+ * {@link #theChooserRunsARealAttackEndToEnd} is the exception and is not optional - it spawns a boss
+ * with its goals intact and a live target, so the chooser, the attack goal, the trigger and the hit
+ * dispatch are all exercised at least once. Without it a boss whose goals were never registered
+ * would leave this whole class green.
  *
  * <h2>Two harness rules these tests learned the hard way</h2>
  *
@@ -507,7 +513,260 @@ public final class ColossusGameTests {
         helper.succeed();
     }
 
+    // ------------------------------------------------------------------ the autonomous fight
+
+    /**
+     * The one test that runs the real AI: goals, a live target, the chooser, the attack goal and
+     * the hit tick. Everything else in this class drives the entity API directly, which is fast and
+     * deterministic but would stay green against a boss whose goals were never registered at all.
+     *
+     * <p>Phase 1 has exactly one move, so with a target three blocks away the chooser's answer is
+     * known: SLAM. The assertions follow one full cycle - idle, a chosen attack, the hit landing on
+     * the kind's own hit tick, the slot handed back and both cooldowns started.
+     */
+    public static void theChooserRunsARealAttackEndToEnd(GameTestHelper helper) {
+        AshenColossusEntity boss = spawnLiveBoss(helper, ARENA_CENTRE);
+        IronGolem victim = helper.spawnWithNoFreeWill(EntityType.IRON_GOLEM,
+                ARENA_CENTRE.offset(0, 0, 3));
+        float[] startHealth = new float[1];
+
+        helper.startSequence()
+                .thenIdle(4)
+                .thenExecute(() -> {
+                    startHealth[0] = victim.getHealth();
+                    // The boss has no natural target: NearestAttackableTargetGoal skips creative
+                    // players and an iron golem is not a Player at all, so the fight is started by
+                    // hand. Everything after this line is the boss' own AI.
+                    boss.setTarget(victim);
+                    helper.assertTrue(boss.getAttack() == AttackKind.NONE,
+                            "the boss should still be idle, was " + boss.getAttack());
+                })
+                // AttackChooserGoal -> AttackSelector -> setAttack, then SlamGoal picks it up.
+                .thenWaitUntil(() -> helper.assertTrue(boss.getAttack() == AttackKind.SLAM,
+                        "phase 1's only move is the slam; the chooser went with " + boss.getAttack()))
+                // Hit tick 20, then eight ticks of ring: comfortably inside the clip.
+                .thenIdle(AttackKind.SLAM.hitTick(0) + Shockwave.EXPANSION_TICKS + 2)
+                .thenExecute(() -> helper.assertTrue(victim.getHealth() < startHealth[0],
+                        "the slam the boss chose for itself should have landed on the dummy three "
+                                + "blocks away, health " + victim.getHealth() + " of "
+                                + startHealth[0]))
+                // The goal owns the boss for the whole 40-tick clip and hands the slot back at the
+                // end; without that the boss would be stuck in one attack forever.
+                .thenWaitUntil(() -> helper.assertTrue(boss.getAttack() == AttackKind.NONE,
+                        "the attack slot should be free again, holds " + boss.getAttack()))
+                .thenExecute(() -> {
+                    helper.assertFalse(boss.globalCooldownReady(),
+                            "finishing an attack must start the global cooldown");
+                    helper.assertTrue(boss.cooldowns().slam() > 0,
+                            "the slam's own cooldown should be running, was "
+                                    + boss.cooldowns().slam());
+                    helper.assertTrue(boss.attackHistory().contains(AttackKind.SLAM),
+                            "the pick should be in the history that stops immediate repeats");
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * {@code /colossus} resolves the nearest boss, not "a" boss. Runs the real command tree through
+     * the dispatcher - the tree itself had no test of any kind.
+     */
+    public static void commandsResolveTheNearestBoss(GameTestHelper helper) {
+        AshenColossusEntity near = spawnBoss(helper, ARENA_CENTRE);
+        AshenColossusEntity far = spawnBoss(helper, ARENA_CENTRE.offset(0, 0, 9));
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        Vec3 at = Vec3.atBottomCenterOf(helper.absolutePos(ARENA_CENTRE));
+        player.moveTo(at.x, at.y, at.z, 0.0F, 0.0F);
+
+        try {
+            helper.assertTrue(near.getHealth() == near.getMaxHealth(), "both bosses start full");
+            helper.assertTrue(far.getHealth() == far.getMaxHealth(), "both bosses start full");
+
+            helper.getLevel().getServer().getCommands().performPrefixedCommand(
+                    player.createCommandSourceStack().withPermission(2), "colossus hp 50");
+
+            helper.assertTrue(near.getHealth() < near.getMaxHealth(),
+                    "the boss the player is standing on should have taken the command, hp is "
+                            + near.getHealth());
+            helper.assertTrue(far.getHealth() == far.getMaxHealth(),
+                    "the boss nine blocks away should be untouched, hp is " + far.getHealth());
+        } finally {
+            helper.getLevel().getServer().getPlayerList().remove(player);
+        }
+        helper.succeed();
+    }
+
+    // ------------------------------------------------------------------ the camera is not a target
+
+    /**
+     * A creative or spectator camera is never damaged, ignited or shoved by the fight.
+     *
+     * <p>Every assertion is paired with a survival-side control standing in the same place - an iron
+     * golem in the shockwave band, a pig outside the ring - so the test cannot pass by the area
+     * query simply missing that patch of arena.
+     */
+    public static void theFightLeavesACreativeCameraAlone(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        AshenColossusEntity boss = spawnBoss(helper, ARENA_CENTRE);
+        // makeMockServerPlayerInLevel returns a player whose isCreative() is true - exactly the
+        // second camera operator this guard exists for.
+        ServerPlayer camera = helper.makeMockServerPlayerInLevel();
+        IronGolem control = helper.spawnWithNoFreeWill(EntityType.IRON_GOLEM,
+                ARENA_CENTRE.offset(0, 0, 3));
+        Pig outsideControl = helper.spawnWithNoFreeWill(EntityType.PIG,
+                ARENA_CENTRE.offset(2, 0, 10));
+
+        Vec3 centre = Vec3.atBottomCenterOf(helper.absolutePos(ARENA_CENTRE));
+        float[] health = new float[2];
+        Set<UUID> alreadyHit = new HashSet<>();
+
+        helper.startSequence()
+                // Let the two control mobs land on the floor before anything measures distances.
+                .thenIdle(4)
+                .thenExecute(() -> {
+                    Vec3 inTheBand = centre.add(0.0D, 0.0D, 3.0D);
+                    camera.moveTo(inTheBand.x, inTheBand.y, inTheBand.z, 0.0F, 0.0F);
+                    camera.setDeltaMovement(Vec3.ZERO);
+                    helper.assertTrue(camera.isCreative(),
+                            "the mock player should be in creative mode");
+                    health[0] = camera.getHealth();
+                    health[1] = control.getHealth();
+
+                    for (int tick = 1; tick <= Shockwave.EXPANSION_TICKS; tick++) {
+                        boss.emitSlamRing(level, tick, alreadyHit);
+                    }
+
+                    helper.assertTrue(control.getHealth() < health[1],
+                            "the control golem standing beside the camera must be hit, or this "
+                                    + "test proves nothing about the camera");
+                    helper.assertValueEqual(alreadyHit.size(), 1, "victims of the slam");
+                    helper.assertFalse(alreadyHit.contains(camera.getUUID()),
+                            "the shockwave must not count a camera as a victim");
+                    // hurt() is filtered by vanilla for creative players; setDeltaMovement is not,
+                    // and hurtMarked would push the shove all the way to their client.
+                    helper.assertTrue(camera.getDeltaMovement().equals(Vec3.ZERO),
+                            "the slam must not shove a creative camera, delta was "
+                                    + camera.getDeltaMovement());
+                })
+                .thenExecute(() -> {
+                    // Ten blocks out of a radius-8 ring: squarely in the fire, beside a pig that
+                    // is about to prove the ring reaches this far.
+                    Vec3 outside = centre.add(0.0D, 0.0D, 10.0D);
+                    camera.moveTo(outside.x, outside.y, outside.z, 0.0F, 0.0F);
+                    health[0] = camera.getHealth();
+                    float pigHealth = outsideControl.getHealth();
+
+                    ArenaRing.burnOutsiders(level, boss, centre, 8.0D, 32.0D,
+                            victim -> !boss.isOwnMinion(victim));
+
+                    helper.assertTrue(ArenaRing.isOutside(centre, camera, 8.0D),
+                            "the camera has to actually be outside the ring for this to mean "
+                                    + "anything; it is standing at " + camera.position());
+                    helper.assertTrue(outsideControl.getRemainingFireTicks() > 0
+                                    && outsideControl.getHealth() < pigHealth,
+                            "the control pig outside the ring must burn, or the ring never reached "
+                                    + "this part of the arena");
+                    // setRemainingFireTicks ignores creative mode and fireImmune alike, so this is
+                    // the assertion that keeps a full-screen fire overlay out of the wide shot.
+                    // "Not alight" is <= 0, not == 0: Entity.java:195 initialises the counter to
+                    // -getFireImmuneTicks() and Entity#move (Entity.java:728-729) resets it to that
+                    // same value every tick the entity spends out of fire, and Player overrides
+                    // getFireImmuneTicks() to 20 (Player.java:470). A player who has never burned
+                    // therefore reads -20; ArenaRing.burnOutsiders would leave BURN_TICKS (60).
+                    helper.assertTrue(camera.getRemainingFireTicks() <= 0,
+                            "the ring must not set a creative camera alight, fire ticks were "
+                                    + camera.getRemainingFireTicks());
+                    helper.assertFalse(camera.isOnFire(),
+                            "a creative camera must never render the fire overlay");
+                    helper.assertTrue(camera.getHealth() == health[0],
+                            "the ring must not burn a creative camera");
+                })
+                .thenExecute(() -> helper.getLevel().getServer().getPlayerList().remove(camera))
+                .thenSucceed();
+    }
+
+    // ------------------------------------------------------------------ arena, fire, cleanup
+
+    /**
+     * Moving the arena mid-take moves the ring with it. The ring's radius is recomputed every tick
+     * from {@code ticksInPhase3}, so re-binding has to reset that clock or the very next tick
+     * recomputes the radius from a stale one and the ring snaps to its 6-block floor.
+     */
+    public static void rebindingTheArenaRestartsTheRing(GameTestHelper helper) {
+        AshenColossusEntity boss = spawnBoss(helper, ARENA_CENTRE);
+        BlockPos centre = helper.absolutePos(ARENA_CENTRE);
+
+        helper.startSequence()
+                .thenExecute(() -> boss.forcePhase(BossPhase.P3))
+                .thenIdle(30)
+                .thenExecute(() -> {
+                    helper.assertTrue(boss.ticksInPhase3() > 0,
+                            "the ring clock should have been running for 30 ticks");
+                    boss.bindArena("wider", centre, 12);
+                    helper.assertValueEqual(boss.ticksInPhase3(), 0, "ring clock after a re-bind");
+                    helper.assertTrue(boss.getRingRadius() == 12.0F,
+                            "the ring should jump to the new circle, sits at "
+                                    + boss.getRingRadius());
+                })
+                .thenIdle(20)
+                .thenExecute(() -> {
+                    float radius = boss.getRingRadius();
+                    // One second of closing at 0.35 blocks/s is 0.35 blocks. Anything near the
+                    // 6-block floor means the ring collapsed instead of re-starting.
+                    helper.assertTrue(radius > 11.0F && radius <= 12.0F,
+                            "the ring should be closing from 12 blocks, not collapsed; it is at "
+                                    + radius);
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * The end of the fight puts the arena out. The scheduled task <em>is</em> the cleanup, so
+     * cancelling it would leave every patch from the last lava-rain volley burning into take two.
+     */
+    public static void deathExtinguishesTheFirePatches(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        AshenColossusEntity boss = spawnBoss(helper, ARENA_CENTRE);
+        // One block above the floor, the way an ash bomb lights its patch.
+        BlockPos patchCentre = helper.absolutePos(ARENA_CENTRE.offset(5, 0, 5));
+        int[] placed = new int[1];
+
+        helper.startSequence()
+                .thenExecute(() -> {
+                    // A lifetime far longer than this test: the fire must go out because the boss
+                    // died, not because it burned down.
+                    placed[0] = FirePatches.scatter(level, patchCentre, 1, 2000);
+                    helper.assertTrue(placed[0] > 0,
+                            "the patch should have lit at all; the test floor may not be solid");
+                    helper.assertTrue(FirePatches.pendingPatches() > 0,
+                            "the patch should be waiting for its cleanup");
+                    helper.assertTrue(anyFireAround(level, patchCentre),
+                            "there should be fire on the floor before the boss dies");
+                    boss.startDeath();
+                })
+                // tickDeath runs the cleanup on the first tick of the collapse.
+                .thenWaitUntil(() -> helper.assertFalse(anyFireAround(level, patchCentre),
+                        "/colossus kill must put the arena out, not merely forget about it"))
+                .thenExecute(() -> helper.assertValueEqual(FirePatches.pendingPatches(), 0,
+                        "pending fire patches after the fight"))
+                .thenSucceed();
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    /** True while any fire block is standing in the 3x3 patch around {@code centre}. */
+    private static boolean anyFireAround(ServerLevel level, BlockPos centre) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -2; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (level.getBlockState(centre.offset(dx, dy, dz))
+                            .getBlock() instanceof BaseFireBlock) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
 
     /**
      * Spawns a goal-less Colossus at {@code pos}, bound to a test arena. The tests drive attacks
@@ -516,6 +775,19 @@ public final class ColossusGameTests {
      */
     private static AshenColossusEntity spawnBoss(GameTestHelper helper, BlockPos pos) {
         AshenColossusEntity boss = helper.spawnWithNoFreeWill(ColossusFeature.colossus().get(), pos);
+        boss.bindArena("test", helper.absolutePos(pos), 20);
+        boss.setAttack(AttackKind.NONE);
+        return boss;
+    }
+
+    /**
+     * Spawns a Colossus with its goals intact - {@code spawn}, not {@code spawnWithNoFreeWill} -
+     * and with no spawn animation in the way. {@code GameTestHelper#spawn} does not call
+     * {@code finalizeSpawn}, so the 60-tick invulnerable entrance never starts and the boss is
+     * ready to fight on the first tick; the arena still has to be bound by hand.
+     */
+    private static AshenColossusEntity spawnLiveBoss(GameTestHelper helper, BlockPos pos) {
+        AshenColossusEntity boss = helper.spawn(ColossusFeature.colossus().get(), pos);
         boss.bindArena("test", helper.absolutePos(pos), 20);
         boss.setAttack(AttackKind.NONE);
         return boss;

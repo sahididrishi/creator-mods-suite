@@ -73,6 +73,24 @@ class EvolvePayloadCodecTest {
     }
 
     @Test
+    void theRoarFactoryRoundTripsAndIsItsOwnKind() {
+        TransformFxPayload roar = TransformFxPayload.roar(PLAYER, 5);
+
+        assertEquals(TransformFxPayload.ROAR, roar.kind());
+        assertNotEquals(TransformFxPayload.START, roar.kind());
+        assertNotEquals(TransformFxPayload.STOP, roar.kind());
+        assertEquals(0, roar.ticks(), "a roar packet carries no duration");
+        assertEquals(5, roar.targetStage());
+
+        RegistryFriendlyByteBuf buf = buffer();
+        TransformFxPayload.CODEC.encode(buf, roar);
+        TransformFxPayload decoded = TransformFxPayload.CODEC.decode(buf);
+
+        assertEquals(roar, decoded);
+        assertEquals(0, buf.readableBytes());
+    }
+
+    @Test
     void xpPopupRoundTripsIncludingNegativeAmounts() {
         for (int amount : new int[] {15, 200, -250, 0}) {
             XpPopupPayload original = new XpPopupPayload(amount, XpPopupPayload.SOURCE_COMMAND);

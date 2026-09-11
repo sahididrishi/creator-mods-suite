@@ -5,14 +5,17 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.riftal.creator.core.command.CommandHelper;
+import dev.riftal.creator.core.net.Payloads;
 import dev.riftal.creator.core.util.Fx;
 import dev.riftal.creator.features.evolve.EvolveFeature;
 import dev.riftal.creator.features.evolve.data.EvolutionData;
+import dev.riftal.creator.features.evolve.net.TransformFxPayload;
 import dev.riftal.creator.features.evolve.net.XpPopupPayload;
 import dev.riftal.creator.features.evolve.perk.StagePerks;
 import dev.riftal.creator.features.evolve.progression.EvolveManager;
 import dev.riftal.creator.features.evolve.progression.Transformation;
 import dev.riftal.creator.features.evolve.stage.EvolutionStage;
+import dev.riftal.creator.features.evolve.stage.StageModifiers;
 import dev.riftal.creator.features.evolve.stage.Stages;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.EntityArgument;
@@ -175,6 +178,7 @@ public final class EvolveCommands {
                 state.totalKills(),
                 format(target.getAttributeValue(Attributes.SCALE)),
                 format(target.getMaxHealth()),
+                modifiers(target),
                 Component.translatable(stage.perkNameKey())));
     }
 
@@ -191,6 +195,9 @@ public final class EvolveCommands {
                         player.position().add(0.0D, 1.0D, 0.0D), 2.0D, 24);
             }
             scattered += StagePerks.roar(player, EvolveManager.data(player));
+            // Trackers turn this into one play of animation.apex.roar on that player's beast.
+            Payloads.sendToTracking(player, TransformFxPayload.roar(player.getUUID(),
+                    EvolveManager.data(player).stage()));
         }
         return CommandHelper.success(ctx.getSource(),
                 Component.translatable(KEY + "roar", targets.size(), scattered));
@@ -202,18 +209,27 @@ public final class EvolveCommands {
             return 0;
         }
         Collection<ServerPlayer> targets = EntityArgument.getPlayers(ctx, "targets");
+        int affected = 0;
         for (ServerPlayer player : targets) {
             if (start) {
-                Transformation.playFxOnly(player, ticks);
+                // Refused outright on a player who is genuinely mid-transformation: b-roll must
+                // never cancel a real sequence's finish task and leave the target frozen.
+                if (Transformation.playFxOnly(player, ticks)) {
+                    affected++;
+                }
             } else {
-                // abort() stops the scheduled fx, drops the movement lock and tells the clients -
-                // which is exactly what a stuck b-roll take needs.
-                Transformation.abort(player);
+                // Only the b-roll tag. A live sequence keeps its spiral, its lock and its finish.
+                Transformation.stopFxOnly(player);
+                affected++;
             }
         }
+        if (start && affected == 0) {
+            return CommandHelper.error(ctx.getSource(),
+                    Component.translatable(KEY + "fx.busy", targets.size()));
+        }
         return CommandHelper.success(ctx.getSource(), start
-                ? Component.translatable(KEY + "fx.start", targets.size(), ticks)
-                : Component.translatable(KEY + "fx.stop", targets.size()));
+                ? Component.translatable(KEY + "fx.start", affected, ticks)
+                : Component.translatable(KEY + "fx.stop", affected));
     }
 
     private static int model(CommandContext<CommandSourceStack> ctx, int override)
@@ -251,6 +267,24 @@ public final class EvolveCommands {
 
     private static String signed(int amount) {
         return amount >= 0 ? "+" + amount : Integer.toString(amount);
+    }
+
+    /**
+     * The live amounts of the three stage modifiers a viewer can actually see on camera, read back
+     * off the attribute map rather than off the stage table - so a drifted or half-applied body
+     * shows up in {@code /evolve info} instead of being invisible until the next take.
+     */
+    private static String modifiers(ServerPlayer target) {
+        return "scale " + signed(StageModifiers.modifierAmount(target, Attributes.SCALE,
+                        StageModifiers.SCALE_ID))
+                + ", hp " + signed(StageModifiers.modifierAmount(target, Attributes.MAX_HEALTH,
+                        StageModifiers.HEALTH_ID))
+                + ", atk " + signed(StageModifiers.modifierAmount(target, Attributes.ATTACK_DAMAGE,
+                        StageModifiers.ATTACK_ID));
+    }
+
+    private static String signed(double amount) {
+        return (amount >= 0.0D ? "+" : "") + format(amount);
     }
 
     private static String format(double value) {

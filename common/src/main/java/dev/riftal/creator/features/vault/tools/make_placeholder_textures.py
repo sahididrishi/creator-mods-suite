@@ -11,6 +11,7 @@ artist should replace each file with.
 """
 
 import os
+import random
 import struct
 import zlib
 
@@ -95,27 +96,156 @@ def key_sprite(size, edge, metal, gem):
     return rows
 
 
-def flat_entity(width, height, base, band, accent):
-    """64x64 sheet: banded purple so every humanoid cube lands on something visible."""
-    rows = []
-    for y in range(height):
-        row = []
-        for x in range(width):
-            if (x % 8 == 0) or (y % 8 == 0):
-                row.append(accent)
-            elif (y // 4) % 2 == 0:
-                row.append(base)
-            else:
-                row.append(band)
-        rows.append(row)
-    # A lighter block where the vanilla humanoid head-front UV sits (8,8)-(16,16),
-    # so the Keeper visibly has a face rather than reading as a solid brick.
-    for y in range(9, 16):
-        for x in range(9, 16):
-            rows[y][x] = (196, 150, 255, 255)
-    for y in (11, 12):
-        for x in (10, 14):
-            rows[y][x] = (255, 90, 90, 255)
+# ---------------------------------------------------------------- entity sheet
+#
+# The vanilla 64x64 humanoid UV layout, read off HumanoidModel.createMesh
+# (HumanoidModel.java:77-116): head texOffs(0,0) 8x8x8, hat texOffs(32,0),
+# body texOffs(16,16) 8x12x4, arm texOffs(40,16) 4x12x4 (the left arm is the same
+# UV mirrored), leg texOffs(0,16) 4x12x4 (left leg likewise).
+#
+# A cube at texOffs(u,v) of size (w,h,d) unwraps as:
+#     down  (u+d,      v)     w x d
+#     up    (u+d+w,    v)     w x d
+#     right (u,        v+d)   d x h
+#     front (u+d,      v+d)   w x h
+#     left  (u+d+w,    v+d)   d x h
+#     back  (u+2d+w,   v+d)   w x h
+#
+# so every region below is named, and every one gets its own tone. The old
+# generator wrote one 8x8 cell repeated 64 times, which is why the Keeper read as
+# a featureless purple blob however it was lit.
+
+KEEPER_DEEP = (24, 18, 34, 255)
+KEEPER_MID = (46, 38, 62, 255)
+KEEPER_LIGHT = (64, 56, 84, 255)
+KEEPER_PALE = (82, 72, 104, 255)
+KEEPER_SEAM = (150, 80, 235, 255)
+KEEPER_SEAM_HOT = (208, 156, 255, 255)
+KEEPER_EYE = (255, 96, 72, 255)
+KEEPER_EYE_CORE = (255, 214, 170, 255)
+CLEAR = (0, 0, 0, 0)
+
+
+def _rect(rows, x0, y0, w, h, colour):
+    for y in range(y0, y0 + h):
+        for x in range(x0, x0 + w):
+            rows[y][x] = colour
+
+
+def _face(rows, x0, y0, w, h, base, rng, chip=0.16):
+    """One cube face: flat stone, a dark mortar border, a little deterministic chipping."""
+    _rect(rows, x0, y0, w, h, base)
+    for x in range(x0, x0 + w):
+        rows[y0][x] = KEEPER_DEEP
+        rows[y0 + h - 1][x] = KEEPER_DEEP
+    for y in range(y0, y0 + h):
+        rows[y][x0] = KEEPER_DEEP
+        rows[y][x0 + w - 1] = KEEPER_DEEP
+    for y in range(y0 + 1, y0 + h - 1):
+        for x in range(x0 + 1, x0 + w - 1):
+            r = rng.random()
+            if r < chip * 0.45:
+                rows[y][x] = KEEPER_DEEP
+            elif r < chip:
+                rows[y][x] = KEEPER_PALE
+
+
+def _cube(rows, u, v, w, h, d, tones, rng):
+    """Unwraps one box into the six named faces. `tones` is (down, up, side, front, back)."""
+    down, up, side, front, back = tones
+    _face(rows, u + d, v, w, d, down, rng)
+    _face(rows, u + d + w, v, w, d, up, rng)
+    _face(rows, u, v + d, d, h, side, rng)
+    _face(rows, u + d, v + d, w, h, front, rng)
+    _face(rows, u + d + w, v + d, d, h, side, rng)
+    _face(rows, u + 2 * d + w, v + d, w, h, back, rng)
+
+
+def _seam_v(rows, x, y0, y1, hot_every=3):
+    """A glowing rune seam running down a face."""
+    for i, y in enumerate(range(y0, y1)):
+        rows[y][x] = KEEPER_SEAM_HOT if i % hot_every == 0 else KEEPER_SEAM
+
+
+def _seam_h(rows, x0, x1, y, hot_every=3):
+    for i, x in enumerate(range(x0, x1)):
+        rows[y][x] = KEEPER_SEAM_HOT if i % hot_every == 0 else KEEPER_SEAM
+
+
+def keeper_skin(rng):
+    """A 64x64 sheet in the real skin layout: stone construct, purple rune seams, lit eyes."""
+    rows = [[CLEAR] * 64 for _ in range(64)]
+
+    # Head 8x8x8 at (0,0). The face is the palest panel so it reads at distance.
+    _cube(rows, 0, 0, 8, 8, 8,
+          (KEEPER_DEEP, KEEPER_MID, KEEPER_MID, KEEPER_LIGHT, KEEPER_MID), rng)
+    # Carved brow and jaw seams on the face panel (8,8)-(16,16).
+    _seam_h(rows, 9, 15, 10)
+    _seam_h(rows, 10, 14, 14)
+    _seam_v(rows, 11, 10, 14)
+    # Two lit eyes.
+    for ex in (10, 13):
+        rows[11][ex] = KEEPER_EYE
+        rows[11][ex + 1] = KEEPER_EYE
+        rows[12][ex] = KEEPER_EYE_CORE
+        rows[12][ex + 1] = KEEPER_EYE
+    # Seam down the back of the skull (24,8)-(32,16).
+    _seam_v(rows, 27, 9, 15)
+
+    # Body 8x12x4 at (16,16). Front panel (20,20)-(28,32) gets the big chest rune.
+    _cube(rows, 16, 16, 8, 12, 4,
+          (KEEPER_DEEP, KEEPER_MID, KEEPER_MID, KEEPER_MID, KEEPER_LIGHT), rng)
+    _seam_v(rows, 23, 21, 31)
+    _seam_v(rows, 24, 21, 31)
+    _seam_h(rows, 21, 27, 24)
+    _seam_h(rows, 22, 26, 28)
+    # Spine seam on the back panel (32,20)-(40,32).
+    _seam_v(rows, 36, 21, 31)
+
+    # Arm 4x12x4 at (40,16): banded, so the limbs never read as part of the torso.
+    _cube(rows, 40, 16, 4, 12, 4,
+          (KEEPER_DEEP, KEEPER_LIGHT, KEEPER_LIGHT, KEEPER_PALE, KEEPER_LIGHT), rng)
+    for band in (23, 27):
+        _seam_h(rows, 41, 55, band, hot_every=4)
+
+    # Leg 4x12x4 at (0,16): the darkest limb, one ankle band.
+    _cube(rows, 0, 16, 4, 12, 4,
+          (KEEPER_DEEP, KEEPER_MID, KEEPER_MID, KEEPER_MID, KEEPER_DEEP), rng)
+    _seam_h(rows, 1, 15, 29, hot_every=4)
+
+    # Hat layer (32,0)-(64,16) is left fully transparent: the mob renders it at
+    # +0.5 inflation, and RenderType.entityCutoutNoCull discards it, so the
+    # silhouette stays the body itself rather than a second ghost shell.
+    return rows
+
+
+def crystal_net(fill, glow, edge):
+    """32x32 sheet for the altar's floating crystal, unwrapped for a 6x4x6 box at texOffs(0,0).
+
+    A 16x16 block texture cannot serve here: the UV net of a 6-wide, 6-deep box is
+    2*(6+6) = 24 pixels across, so it needs a 32x32 sheet. Drawn as facets - a lit
+    core with darker bevels - rather than the flat diamond the block model uses.
+    """
+    rows = [[(0, 0, 0, 0)] * 32 for _ in range(32)]
+
+    def facet(x0, y0, w, h):
+        for y in range(y0, y0 + h):
+            for x in range(x0, x0 + w):
+                # Distance from the panel centre drives the bevel.
+                dx = abs(x - (x0 + (w - 1) / 2.0)) / max(1.0, (w - 1) / 2.0)
+                dy = abs(y - (y0 + (h - 1) / 2.0)) / max(1.0, (h - 1) / 2.0)
+                d = max(dx, dy)
+                rows[y][x] = glow if d < 0.34 else (fill if d < 0.8 else edge)
+
+    w = h = 6
+    depth = 6
+    height = 4
+    facet(depth, 0, w, depth)                       # down
+    facet(depth + w, 0, w, depth)                   # up
+    facet(0, depth, depth, height)                  # right
+    facet(depth, depth, w, height)                  # front
+    facet(depth + w, depth, depth, height)          # left
+    facet(2 * depth + w, depth, w, height)          # back
     return rows
 
 
@@ -148,9 +278,12 @@ def main():
     written.append(write_png(os.path.join(ASSETS, "item", "vault_key.png"),
                              16, 16, key_sprite(16, (26, 20, 12, 255), (198, 166, 88, 255),
                                                 (170, 90, 255, 255))))
+    for state, (fill, glow) in CRYSTALS.items():
+        written.append(write_png(
+            os.path.join(ASSETS, "entity", "cursed_altar_crystal_%s.png" % state),
+            32, 32, crystal_net(fill, glow, DARK)))
     written.append(write_png(os.path.join(ASSETS, "entity", "vault_keeper.png"),
-                             64, 64, flat_entity(64, 64, (58, 34, 88, 255), (44, 26, 68, 255),
-                                                 (28, 16, 44, 255))))
+                             64, 64, keeper_skin(random.Random(20260912))))
     for path in written:
         print(os.path.relpath(path, COMMON))
 

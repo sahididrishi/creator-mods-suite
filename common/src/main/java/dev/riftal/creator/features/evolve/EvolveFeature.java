@@ -54,6 +54,10 @@ public final class EvolveFeature implements Feature {
     /** Resource namespace owned by this feature. */
     public static final String NAMESPACE = "creator_evolve";
 
+    /** Fabric-only listener glue, reached reflectively because {@code fabric.mod.json} is shared. */
+    private static final String FABRIC_HOOKS =
+            "dev.riftal.creator.features.evolve.event.EvolveFabricHooks";
+
     private static RegistryEntry<EntityType<ApexBeast>> apexBeast;
     private static RegistryEntry<SoundEvent> roarSmall;
     private static RegistryEntry<SoundEvent> roarApex;
@@ -140,8 +144,30 @@ public final class EvolveFeature implements Feature {
 
     @Override
     public void initCommon() {
+        bootstrapFabricHooks();
         LOG.info("[evolve] {} stages armed, thresholds {}", Stages.ALL.size(),
                 Arrays.toString(Stages.THRESHOLDS));
+    }
+
+    /**
+     * Starts the Fabric start-tracking listener. NeoForge has no counterpart here: its twin is an
+     * auto-scanned {@code @EventBusSubscriber} class in the {@code neoforge} module, which needs no
+     * bootstrap at all. Fabric discovers listeners only through {@code fabric.mod.json}, a shared
+     * file no feature may edit, so this is a single {@code Class.forName} into this feature's own
+     * class in the {@code fabric} module - the pattern {@code PowersClient} already uses.
+     *
+     * <p>If it ever fails the feature still works; a player walking into tracking range just falls
+     * back to the five-second roster pass for their first sync.
+     */
+    private static void bootstrapFabricHooks() {
+        try {
+            Class.forName(FABRIC_HOOKS).getMethod("init").invoke(null);
+        } catch (ClassNotFoundException notFabric) {
+            // NeoForge: the glue is an auto-scanned @EventBusSubscriber class instead.
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            LOG.warn("[evolve] Fabric start-tracking glue did not start; a player walking into "
+                    + "range will see the right stage on the next roster pass instead", failure);
+        }
     }
 
     @Override

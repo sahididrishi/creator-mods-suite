@@ -33,13 +33,15 @@ GeckoLib entity, and every particle used is vanilla (`FLAME`, `LAVA`, `LARGE_SMO
 ## Sounds
 
 All six are **mono, 44.1 kHz Ogg Vorbis**, so Minecraft applies normal distance attenuation and
-panning — the drone and the hum fade with distance as intended. ffmpeg's native `vorbis` encoder is
-stereo-only, so they are encoded with `ffmpeg -ac 1 -ar 44100` piped into `oggenc` (vorbis-tools),
-per CONTRACT.md §9.2. Every replacement must stay **mono, 44.1 kHz**.
+panning — the hum fades with distance as intended. ffmpeg's native `vorbis` encoder is stereo-only,
+so `tools/make_placeholder_sounds.sh` synthesises a mono WAV with `ffmpeg -ac 1 -ar 44100` and
+encodes it with `oggenc` (vorbis-tools), per CONTRACT.md §9.2. The script re-runs `ffprobe` over
+every file it wrote and **fails** if any of them comes back with more than one channel. Every
+replacement must stay **mono, 44.1 kHz**.
 
 | File | Sound event | Kind | Status | What a real artist should do |
 |---|---|---|---|---|
-| `assets/creator_events/sounds/bloodmoon/drone.ogg` | `creator_events:bloodmoon.drone` | 6.0 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (55 Hz + fifth + slow beat) | Seamless loop: bowed sub-bass, distant wolves, a faint metallic shimmer. Re-triggered every 5 s, so it must not click at the seam |
+| `assets/creator_events/sounds/bloodmoon/drone.ogg` | `creator_events:bloodmoon.drone` | 6.0 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (55 Hz + fifth + slow beat) | Seamless loop: bowed sub-bass, distant wolves, a faint metallic shimmer. Played as a client-side looping `EventAmbientSound`, so it must not click at the seam |
 | `assets/creator_events/sounds/meteor/whistle.ogg` | `creator_events:meteor.whistle` | 3.0 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (falling sweep + air noise) | Air-tearing descending howl, loud, mono, with the doppler already baked in |
 | `assets/creator_events/sounds/meteor/impact.ogg` | `creator_events:meteor.impact` | 2.2 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (42 Hz thud + noise burst) | Deep ground-shaking boom, rock debris tail, a long low rumble underneath |
 | `assets/creator_events/sounds/siege/horn.ogg` | `creator_events:siege.horn` | 2.4 s Vorbis, **mono** | **PROCEDURAL PLACEHOLDER** (two notes, D2 → G2) | A real war horn, two notes, slightly detuned, with a stone-courtyard tail |

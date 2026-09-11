@@ -5,6 +5,8 @@ import dev.riftal.creator.features.powers.PowersFeature;
 import dev.riftal.creator.features.powers.ability.Ability;
 import dev.riftal.creator.features.powers.ability.AbilityRegistry;
 import dev.riftal.creator.features.powers.ability.UseResult;
+import dev.riftal.creator.features.powers.ability.impl.MobFreezeAbility;
+import dev.riftal.creator.features.powers.ability.impl.ShieldDomeAbility;
 import dev.riftal.creator.features.powers.data.PlayerPowers;
 import dev.riftal.creator.features.powers.effect.ActiveEffects;
 import dev.riftal.creator.features.powers.server.PowerManager;
@@ -18,6 +20,8 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.Cow;
+import net.minecraft.world.entity.animal.Wolf;
+import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.projectile.Arrow;
 import net.minecraft.world.phys.Vec3;
@@ -203,8 +207,17 @@ public final class PowersGameTests {
         long now = level.getGameTime();
         UUID id = player.getUUID();
         helper.assertTrue(ActiveEffects.dashInvulnerable(id, now), "the i-frame window should be open");
-        helper.assertTrue(ActiveEffects.shouldCancelDamage(player, level.damageSources().generic(), now),
-                "a hit during the dash window should be swallowed");
+        // "melee only" - plan 03 section 5, dash balance column.
+        helper.assertTrue(ActiveEffects.shouldCancelDamage(player,
+                        level.damageSources().playerAttack(player), now),
+                "a melee hit during the dash window should be swallowed");
+        helper.assertFalse(ActiveEffects.shouldCancelDamage(player,
+                        level.damageSources().explosion(null, null), now),
+                "a dash must not be better cover against a creeper than the Shield Dome is");
+        helper.assertFalse(ActiveEffects.shouldCancelDamage(player, level.damageSources().onFire(), now),
+                "burning still burns while dashing");
+        helper.assertFalse(ActiveEffects.shouldCancelDamage(player, level.damageSources().generic(), now),
+                "damage with no attacker behind it is not melee");
         helper.assertFalse(ActiveEffects.shouldCancelDamage(player, level.damageSources().fall(), now),
                 "fall damage must still land - the dash is not a free descent");
         helper.assertFalse(ActiveEffects.dashInvulnerable(id, now + 8L),
@@ -281,6 +294,12 @@ public final class PowersGameTests {
         Zombie two = zombieAt(helper, 6.5D, 6.5D);
         Cow cow = helper.spawn(EntityType.COW, new Vec3(6.5D, FLOOR_Y, 2.5D));
 
+        // The test's own premise: every mob in this 9x9 arena is inside the freeze radius. Shrink
+        // RADIUS below that and this test would quietly start proving something else.
+        helper.assertTrue(MobFreezeAbility.radius() >= 8.0D,
+                "the arena must fit inside the freeze radius, which is "
+                        + MobFreezeAbility.radius() + " blocks");
+
         helper.assertTrue(PowerManager.forceUse(player, ability("mob_freeze")) == UseResult.ACTIVATED,
                 "freeze should fire");
 
@@ -293,8 +312,10 @@ public final class PowersGameTests {
         }
         helper.assertFalse(cow.isNoAi(), "a cow is not an Enemy and must keep grazing");
 
-        // The freeze runs 100 ticks; the thaw restores the flags the mobs had when it started.
-        helper.runAfterDelay(115L, () -> {
+        // The thaw restores the flags the mobs had when it started. The delay is read from the
+        // ability rather than typed in, so a balance change cannot leave this test asserting
+        // against a timer that no longer exists.
+        helper.runAfterDelay(MobFreezeAbility.durationTicks() + 15L, () -> {
             for (Mob mob : List.of(one, two)) {
                 helper.assertFalse(mob.isNoAi(), "the zombie should have its AI back");
                 helper.assertFalse(mob.isNoGravity(), "the zombie should fall again");
@@ -378,10 +399,12 @@ public final class PowersGameTests {
         ServerPlayer player = testPlayer(helper, 4.5D, 4.5D, FACING_EAST);
         PowerManager.forceUse(player, ability("shield_dome"));
 
+        int duration = ShieldDomeAbility.durationTicks();
         helper.assertTrue(ActiveEffects.domeRemaining(player.getUUID(),
-                helper.getLevel().getGameTime()) > 190, "the dome should start with its full 200 ticks");
+                        helper.getLevel().getGameTime()) > duration - 10,
+                "the dome should start with its full " + duration + " ticks");
 
-        helper.runAfterDelay(215L, () -> {
+        helper.runAfterDelay(duration + 15L, () -> {
             long now = helper.getLevel().getGameTime();
             helper.assertFalse(ActiveEffects.domeActive(player.getUUID(), now), "the dome should be over");
             AttributeInstance armour = player.getAttribute(Attributes.ARMOR);
@@ -398,6 +421,121 @@ public final class PowersGameTests {
             release(helper, player);
             helper.succeed();
         });
+    }
+
+    /**
+     * A {@code /reload} mid-take must leave a live dome exactly where it is, and the wipe that does
+     * happen - when the world closes - must hand every buff back rather than forgetting the dome.
+     *
+     * <p>The two halves belong in one test because they are the same bug: {@code /reload} rebuilds
+     * the command dispatcher, which is what calls {@code startTicking()}, and an earlier revision
+     * wiped {@code ActiveEffects} from there with a bare {@code DOMES.clear()} - so a reload during
+     * a take both dropped the dome and left the creator with +10 armour and four golden hearts for
+     * the rest of the session.
+     */
+    public static void reloadKeepsTheDomeAndTheWipeHandsItBack(GameTestHelper helper) {
+        ServerPlayer player = testPlayer(helper, 4.5D, 4.5D, FACING_EAST);
+        helper.assertTrue(PowerManager.forceUse(player, ability("shield_dome")) == UseResult.ACTIVATED,
+                "dome should fire");
+        helper.assertTrue(player.getAbsorptionAmount() >= 8.0F,
+                "the dome should have handed over its four golden hearts");
+        AttributeInstance armour = player.getAttribute(Attributes.ARMOR);
+        helper.assertTrue(armour != null && armour.hasModifier(ActiveEffects.DOME_ARMOR_ID),
+                "the armour modifier should be on");
+
+        // Exactly what /reload does: the dispatcher is rebuilt, so the command registrar replays.
+        PowerManager.startTicking();
+
+        helper.assertTrue(ActiveEffects.domeActive(player.getUUID(), helper.getLevel().getGameTime()),
+                "a /reload must not drop a dome that is live on camera");
+        helper.assertTrue(armour.hasModifier(ActiveEffects.DOME_ARMOR_ID),
+                "and must not strip its modifiers either");
+
+        // What a closing world does. Every buff comes back off, through endDome.
+        ActiveEffects.reset();
+
+        helper.assertFalse(ActiveEffects.domeActive(player.getUUID(), helper.getLevel().getGameTime()),
+                "the wipe should end the dome");
+        helper.assertFalse(armour.hasModifier(ActiveEffects.DOME_ARMOR_ID),
+                "+10 armour must not outlive the dome");
+        AttributeInstance toughness = player.getAttribute(Attributes.ARMOR_TOUGHNESS);
+        helper.assertTrue(toughness != null && !toughness.hasModifier(ActiveEffects.DOME_TOUGHNESS_ID),
+                "and neither must +4 toughness");
+        helper.assertTrue(player.getAbsorptionAmount() == 0.0F,
+                "the golden hearts must be handed back, was " + player.getAbsorptionAmount());
+        release(helper, player);
+        helper.succeed();
+    }
+
+    /**
+     * Logging out ends that player's dome and thaws the mobs that player froze - the lifecycle hook
+     * {@code PowersPlayerListMixin} calls. Without it the frozen mobs sit {@code NoAI} until their
+     * 100-tick timer runs out (or for ever, if the chunk unloads first) and the dome's absorption is
+     * written to the player file.
+     */
+    public static void logoutEndsTheDomeAndThawsThatPlayersMobs(GameTestHelper helper) {
+        helper.setNight();
+        ServerPlayer player = testPlayer(helper, 4.5D, 4.5D, FACING_EAST);
+        Zombie zombie = zombieAt(helper, 5.5D, 4.5D);
+        int frozenBefore = ActiveEffects.frozenCount();
+
+        helper.assertTrue(PowerManager.forceUse(player, ability("mob_freeze")) == UseResult.ACTIVATED,
+                "freeze should fire");
+        helper.assertTrue(PowerManager.forceUse(player, ability("shield_dome")) == UseResult.ACTIVATED,
+                "dome should fire");
+        helper.assertTrue(zombie.isNoAi(), "the zombie should be held");
+        helper.assertTrue(ActiveEffects.frozenCount() > frozenBefore, "and tracked by this session");
+
+        PowerManager.onPlayerLogout(player);
+
+        helper.assertFalse(zombie.isNoAi(), "a logout must hand the mob its AI back at once");
+        helper.assertFalse(zombie.isNoGravity(), "and its gravity");
+        helper.assertFalse(zombie.getTags().contains(ActiveEffects.FROZEN_TAG),
+                "and take the crash-recovery tag off");
+        helper.assertTrue(ActiveEffects.frozenCount() == frozenBefore,
+                "the freeze should no longer be tracked");
+        helper.assertFalse(ActiveEffects.domeActive(player.getUUID(), helper.getLevel().getGameTime()),
+                "the dome should be down");
+        AttributeInstance armour = player.getAttribute(Attributes.ARMOR);
+        helper.assertTrue(armour != null && !armour.hasModifier(ActiveEffects.DOME_ARMOR_ID),
+                "and its armour modifier gone before the player file is written");
+        helper.assertTrue(player.getAbsorptionAmount() == 0.0F,
+                "and its absorption handed back, was " + player.getAbsorptionAmount());
+        release(helper, player);
+        helper.succeed();
+    }
+
+    /**
+     * The shockwave is an area effect, not a room-clearer: it must leave the set dressing and the
+     * creator's own animals alone. An armour stand knocked over or a horse launched across the
+     * arena is a retake.
+     */
+    public static void groundPoundSparesArmourStandsAndTheCastersOwnPet(GameTestHelper helper) {
+        helper.setNight();
+        ServerLevel level = helper.getLevel();
+        ServerPlayer player = testPlayer(helper, 4.5D, 4.5D, FACING_EAST);
+
+        Zombie zombie = zombieAt(helper, 6.0D, 4.5D);
+        zombie.setNoGravity(true);
+        ArmorStand prop = helper.spawn(EntityType.ARMOR_STAND, new Vec3(3.0D, FLOOR_Y, 4.5D));
+        Wolf pet = helper.spawn(EntityType.WOLF, new Vec3(4.5D, FLOOR_Y, 3.0D));
+        pet.setTame(true, false);
+        pet.setOwnerUUID(player.getUUID());
+        float petHealth = pet.getHealth();
+        float propHealth = prop.getHealth();
+
+        PowerManager.onPoundImpact(player, level, level.getGameTime(), 6.0D);
+
+        helper.assertTrue(zombie.getHealth() < zombie.getMaxHealth(),
+                "the hostile in the radius should still take the shockwave");
+        helper.assertTrue(prop.getHealth() == propHealth && !prop.isRemoved(),
+                "an armour stand is scenery, not a target");
+        helper.assertTrue(pet.getHealth() == petHealth,
+                "the creator's own pet must not be hurt by their own pound");
+        helper.assertTrue(pet.getDeltaMovement().horizontalDistance() < 0.1D,
+                "nor thrown, delta was " + pet.getDeltaMovement());
+        release(helper, player);
+        helper.succeed();
     }
 
     private PowersGameTests() {

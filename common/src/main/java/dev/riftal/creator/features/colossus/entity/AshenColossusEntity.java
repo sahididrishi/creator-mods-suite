@@ -1,5 +1,6 @@
 package dev.riftal.creator.features.colossus.entity;
 
+import dev.riftal.creator.core.sched.TickScheduler;
 import dev.riftal.creator.core.util.Fx;
 import dev.riftal.creator.core.util.MathUtil;
 import dev.riftal.creator.core.util.Selection;
@@ -8,6 +9,7 @@ import dev.riftal.creator.features.colossus.AttackKind;
 import dev.riftal.creator.features.colossus.AttackSelector;
 import dev.riftal.creator.features.colossus.BossPhase;
 import dev.riftal.creator.features.colossus.ColossusFeature;
+import dev.riftal.creator.features.colossus.Combatants;
 import dev.riftal.creator.features.colossus.FirePatches;
 import dev.riftal.creator.features.colossus.Shockwave;
 import dev.riftal.creator.features.colossus.arena.Arena;
@@ -247,22 +249,40 @@ public class AshenColossusEntity extends Monster implements GeoEntity {
         return this.arenaName;
     }
 
-    /** Binds the boss to an arena. Called by {@code finalizeSpawn} and by {@code /colossus arena set}. */
+    /**
+     * Binds the boss to an arena. Called by {@code finalizeSpawn} and by
+     * {@code /colossus arena set}.
+     *
+     * <p>Re-binding mid-fight <b>restarts the close</b>: the ring jumps to the new arena radius and
+     * begins shrinking again from there. The alternative - keeping the radius the ring had already
+     * reached - reads fine in the field but is wrong in the one case the command exists for:
+     * {@code ticksInPhase3} is the ring's only clock, so a ring left at, say, 9 blocks with 600
+     * ticks on that clock would be recomputed to {@code newRadius - 10.5} on the very next tick and
+     * snap straight to the 6-block floor. Moving the arena mid-take now does exactly what
+     * {@code docs/features/colossus.md} promises: the ring jumps to the new circle.
+     */
     public void bindArena(String name, BlockPos centre, int radius) {
         this.arenaName = name;
         this.arenaRadius = Math.max(Arena.MIN_RADIUS, Math.min(Arena.MAX_RADIUS, radius));
         this.arenaBound = true;
         this.entityData.set(DATA_ARENA_CENTRE, centre);
-        // Re-binding mid-fight keeps whatever the ring has already closed to, but never lets it
-        // sit outside the new arena.
-        float current = this.getRingRadius() <= 0.0F ? this.arenaRadius : this.getRingRadius();
+        this.ticksInPhase3 = 0;
         this.entityData.set(DATA_RING_RADIUS,
-                Math.max((float) ArenaRing.MIN_RADIUS, Math.min(current, this.arenaRadius)));
+                Math.max((float) ArenaRing.MIN_RADIUS, (float) this.arenaRadius));
         this.restrictTo(centre, this.arenaRadius);
     }
 
     public boolean hasArena() {
         return this.arenaBound;
+    }
+
+    /**
+     * Ticks the boss has spent in phase 3. This is the fire ring's only clock - the radius is
+     * recomputed from it every tick - so it is reset whenever the arena is re-bound. Exposed for
+     * diagnostics and tests.
+     */
+    public int ticksInPhase3() {
+        return this.ticksInPhase3;
     }
 
     // ------------------------------------------------------------------ goals
@@ -471,8 +491,8 @@ public class AshenColossusEntity extends Monster implements GeoEntity {
     public void emitSlamRing(ServerLevel level, int tickSinceImpact, Set<UUID> alreadyHit) {
         double radius = Shockwave.radiusAt(tickSinceImpact, Shockwave.EXPANSION_TICKS, SLAM_MAX_RADIUS);
         float damage = SLAM_DAMAGE + (float) this.getAttributeValue(Attributes.ATTACK_DAMAGE) * 0.25F;
-        Shockwave.apply(level, this, this.position(), radius, damage, SLAM_KNOCKBACK, alreadyHit,
-                victim -> !this.isOwnMinion(victim));
+        Shockwave.apply(level, this, this.position(), radius, tickSinceImpact, damage,
+                SLAM_KNOCKBACK, alreadyHit, victim -> !this.isOwnMinion(victim));
     }
 
     /** Throws one ash bomb at a scattered point around {@code aim}. */
@@ -524,7 +544,8 @@ public class AshenColossusEntity extends Monster implements GeoEntity {
         float damage = COMBO_DAMAGE[Math.min(index, COMBO_DAMAGE.length - 1)];
         Vec3 origin = this.position().add(MathUtil.horizontalLook(this).scale(COMBO_REACH * 0.5D));
         for (LivingEntity victim : Selection.livingAround(level, origin, COMBO_REACH, this)) {
-            if (this.isOwnMinion(victim) || !this.isInFrontArc(victim)) {
+            // knockback() ignores gamemode, so the camera has to be filtered out explicitly.
+            if (this.isOwnMinion(victim) || Combatants.isCamera(victim) || !this.isInFrontArc(victim)) {
                 continue;
             }
             victim.hurt(level.damageSources().mobAttack(this), damage);
@@ -653,7 +674,11 @@ public class AshenColossusEntity extends Monster implements GeoEntity {
         if (this.deathTime == 1) {
             this.setAttack(AttackKind.DEATH);
             this.dismissMinions(level);
-            FirePatches.cancelPending();
+            // Put the arena out, do not merely forget about it: the scheduled task IS the cleanup,
+            // so cancelling it would leave every patch from the last volley burning - and spreading
+            // - into the next take.
+            FirePatches.extinguishAll(level);
+            TickScheduler.cancelAll(LavaRainGoal.volleyTag(this));
             Fx.sound(level, this.position(), ColossusFeature.deathSound(), SoundSource.HOSTILE, 4.0F, 0.9F);
             ScreenShakePayload.sendAround(level, this.position(), 0.5F, 40, 32.0F);
         }
@@ -729,6 +754,14 @@ public class AshenColossusEntity extends Monster implements GeoEntity {
         compound.putIntArray("ArenaCentre", new int[]{centre.getX(), centre.getY(), centre.getZ()});
         compound.putFloat("RingRadius", this.getRingRadius());
         compound.putInt("TicksInPhase3", this.ticksInPhase3);
+        compound.putInt("GlobalCooldown", this.globalCooldown);
+        // The no-immediate-repeat rule reads only the most recent pick, so that is all the disk has
+        // to carry. Without it a relog mid-fight lets the boss open with the attack it was halfway
+        // through, which on camera reads as a stutter.
+        AttackKind last = this.history.peekLast();
+        if (last != null) {
+            compound.putString("LastAttack", last.name());
+        }
         compound.putInt("SlamCooldown", this.slamCooldown);
         compound.putInt("LavaRainCooldown", this.lavaRainCooldown);
         compound.putInt("SummonCooldown", this.summonCooldown);
@@ -762,11 +795,20 @@ public class AshenColossusEntity extends Monster implements GeoEntity {
                 ? compound.getFloat("RingRadius")
                 : (float) this.arenaRadius);
         this.ticksInPhase3 = compound.getInt("TicksInPhase3");
+        this.globalCooldown = compound.getInt("GlobalCooldown");
         this.slamCooldown = compound.getInt("SlamCooldown");
         this.lavaRainCooldown = compound.getInt("LavaRainCooldown");
         this.summonCooldown = compound.getInt("SummonCooldown");
         this.comboCooldown = compound.getInt("ComboCooldown");
         this.staggerTicks = compound.getInt("StaggerTicks");
+
+        this.history.clear();
+        if (compound.contains("LastAttack")) {
+            AttackKind last = AttackKind.byName(compound.getString("LastAttack"));
+            if (last.isChoosable()) {
+                this.history.addLast(last);
+            }
+        }
 
         this.minions.clear();
         ListTag ids = compound.getList("Minions", Tag.TAG_INT_ARRAY);

@@ -67,12 +67,19 @@ public final class ArenaRing {
         }
     }
 
-    /** Sets fire to everything standing outside the ring. */
+    /**
+     * Sets fire to everything standing outside the ring.
+     *
+     * <p>Creative and spectator players are skipped before anything is applied:
+     * {@code setRemainingFireTicks} ignores both creative mode and {@code fireImmune}, so without
+     * this filter the camera operator flying outside the ring gets a full-screen fire overlay.
+     */
     public static void burnOutsiders(ServerLevel level, LivingEntity source, Vec3 centre,
                                      double radius, double searchRadius,
                                      Predicate<LivingEntity> canBurn) {
         List<LivingEntity> nearby = Selection.around(level, LivingEntity.class, centre,
-                searchRadius, e -> e != source && canBurn.test(e));
+                searchRadius,
+                e -> e != source && !Combatants.isCamera(e) && canBurn.test(e));
         for (LivingEntity victim : nearby) {
             if (!isOutside(centre, victim.position(), radius)) {
                 continue;

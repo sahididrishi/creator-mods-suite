@@ -1,7 +1,9 @@
 package dev.riftal.creator.features.rules.gametest;
 
 import dev.riftal.creator.core.CreatorMods;
+import dev.riftal.creator.core.sched.TickScheduler;
 import dev.riftal.creator.features.rules.RuleIds;
+import dev.riftal.creator.features.rules.RuleManager;
 import dev.riftal.creator.features.rules.RuleTags;
 import dev.riftal.creator.features.rules.RulesFeature;
 import dev.riftal.creator.features.rules.api.RuleContext;
@@ -27,20 +29,20 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * GameTest bodies for the {@code rules} feature. Vanilla API only, so both loaders can call them.
@@ -116,6 +118,38 @@ public final class RulesGameTests {
         helper.assertTrue(zombie.getHealth() <= zombie.getMaxHealth(),
                 "health should have been clamped back inside the smaller maximum");
 
+        helper.killAllEntities();
+        helper.succeed();
+    }
+
+    /**
+     * A giant mob that has been fought down stays fought down when the rule re-applies its
+     * modifiers.
+     *
+     * <p>Both modifiers are transient, so a chunk cycle strips them and the sweep grows the mob
+     * again. That second growth used to call {@code heal}, which meant a giant zombie on its last
+     * heart was back at full health every time its chunk reloaded. The persisted
+     * {@code creator_rules_giant} tag is what tells the two cases apart.
+     */
+    public static void giantMobsDoesNotHealOnRegrowth(GameTestHelper helper) {
+        Zombie zombie = helper.spawn(EntityType.ZOMBIE, new BlockPos(2, 2, 2));
+
+        GiantMobsRule.grow(zombie);
+        helper.assertTrue(zombie.getHealth() == zombie.getMaxHealth(),
+                "the first growth should top a fresh mob up to its new maximum");
+
+        zombie.setHealth(5.0F);
+        // Exactly what a chunk reload looks like from the rule's side: modifiers gone, tag kept.
+        GiantMobsRule.shrink(zombie);
+        zombie.addTag(RuleIds.GIANT_TAG);
+        zombie.setHealth(5.0F);
+        GiantMobsRule.grow(zombie);
+
+        helper.assertTrue(zombie.getHealth() == 5.0F,
+                "a re-grown mob must keep the damage it has taken, was " + zombie.getHealth());
+        helper.assertTrue(zombie.getMaxHealth() > 5.0F, "and it must be giant again");
+
+        GiantMobsRule.shrink(zombie);
         helper.killAllEntities();
         helper.succeed();
     }
@@ -197,30 +231,64 @@ public final class RulesGameTests {
     }
 
     /**
-     * {@code blocks_explode} uses {@link Level.ExplosionInteraction#NONE} precisely so the creator's
-     * build survives the take. This asserts the vanilla behaviour the rule depends on.
+     * {@code blocks_explode} fires a real blast that leaves the build standing <em>and</em> leaves
+     * the drop the break just made lying there.
+     *
+     * <p>The second half is the one that matters: {@code ExplosionInteraction.NONE} only spares
+     * blocks. Vanilla still damages every entity within twice the radius, and an {@code ItemEntity}
+     * has 5 health against roughly 20 damage at that range - so before the rule shipped its own
+     * damage calculator, mining with {@code blocks_explode} on destroyed the drop every time, and
+     * {@code chaos.json} switches it on next to {@code random_drops}.
      */
-    public static void blocksExplodeLeavesTheBuildStanding(GameTestHelper helper) {
-        BlockPos planks = new BlockPos(4, 1, 4);
-        helper.setBlock(planks, Blocks.OAK_PLANKS);
-        BlockPos neighbour = new BlockPos(4, 1, 3);
-        helper.setBlock(neighbour, Blocks.OAK_PLANKS);
+    public static void blocksExplodeSparesTheBuildAndTheDrops(GameTestHelper helper) {
+        // The block at `mined` has just been broken, so it is air and its drop is lying in it.
+        BlockPos mined = new BlockPos(4, 1, 3);
+        helper.setBlock(mined, Blocks.AIR);
+        BlockPos build = new BlockPos(4, 1, 4);
+        helper.setBlock(build, Blocks.OAK_PLANKS);
+        BlockPos build2 = new BlockPos(3, 1, 3);
+        helper.setBlock(build2, Blocks.OAK_PLANKS);
 
         helper.assertTrue(BlocksExplodeRule.RADIUS >= 2.0F,
                 "the explosion has to be big enough to read on camera");
         helper.assertTrue(BlocksExplodeRule.COOLDOWN_TICKS > 0,
                 "back-to-back breaks must be rate limited or a fast miner chain-explodes");
 
-        Vec3 centre = Vec3.atCenterOf(helper.absolutePos(neighbour));
-        helper.getLevel().explode(null, centre.x, centre.y, centre.z, BlocksExplodeRule.RADIUS,
-                false, Level.ExplosionInteraction.NONE);
+        ItemEntity drop = helper.spawnItem(Items.SADDLE, mined);
+        BlocksExplodeRule.detonate(helper.getLevel(), helper.absolutePos(mined));
 
-        helper.assertBlockPresent(Blocks.OAK_PLANKS, planks);
-        helper.assertBlockPresent(Blocks.OAK_PLANKS, neighbour);
+        helper.assertBlockPresent(Blocks.OAK_PLANKS, build);
+        helper.assertBlockPresent(Blocks.OAK_PLANKS, build2);
+        helper.assertTrue(!drop.isRemoved(),
+                "the block's own drop must survive the explosion, or random_drops silently does nothing");
+        helper.assertTrue(drop.getItem().is(Items.SADDLE), "and it must still be the same item");
 
-        helper.setBlock(planks, Blocks.AIR);
-        helper.setBlock(neighbour, Blocks.AIR);
+        drop.discard();
+        helper.setBlock(build, Blocks.AIR);
+        helper.setBlock(build2, Blocks.AIR);
         helper.killAllEntities();
+        helper.succeed();
+    }
+
+    /**
+     * The per-player cooldown actually suppresses the second break, so a fast miner cannot chain
+     * one explosion per block into a crater.
+     */
+    public static void blocksExplodeCooldownSuppressesTheSecondBreak(GameTestHelper helper) {
+        BlocksExplodeRule rule = new BlocksExplodeRule();
+        ServerLevel level = helper.getLevel();
+        UUID miner = UUID.randomUUID();
+        BlockPos pos = helper.absolutePos(new BlockPos(4, 1, 4));
+
+        helper.assertTrue(rule.trigger(level, miner, pos),
+                "the first break of a run should always explode");
+        helper.assertFalse(rule.trigger(level, miner, pos),
+                "a second break inside " + BlocksExplodeRule.COOLDOWN_TICKS + " ticks must be swallowed");
+        helper.assertTrue(rule.trigger(level, UUID.randomUUID(), pos),
+                "the cooldown is per player, not global");
+
+        // Drop the queued blasts rather than letting them go off in another test's arena.
+        TickScheduler.cancelAll(RuleIds.SCHED_EXPLODE);
         helper.succeed();
     }
 
@@ -308,6 +376,11 @@ public final class RulesGameTests {
         helper.assertFalse(new ItemStack(Items.SADDLE).is(RuleTags.NEVER_RANDOM),
                 "the saddle is the joke drop in the demo and must stay in the pool");
 
+        helper.assertTrue(Blocks.EMERALD_BLOCK.defaultBlockState().is(RuleTags.SHOP_BLOCKS),
+                "the emerald block is the shipped hearts_currency shop block");
+        helper.assertFalse(Blocks.STONE.defaultBlockState().is(RuleTags.SHOP_BLOCKS),
+                "every other block must stay a normal block or the world becomes one big shop");
+
         List<Item> pool = RandomItems.pool();
         helper.assertTrue(!pool.isEmpty(), "the roulette pool should not be empty");
         helper.assertFalse(pool.contains(Items.AIR), "air must never be handed out");
@@ -365,6 +438,49 @@ public final class RulesGameTests {
                 "a block that drops nothing must still drop nothing");
 
         rule.onDisable(context);
+        helper.succeed();
+    }
+
+    /**
+     * {@code /rule preset chaos} for real: the engine is live on a running server, a replace preset
+     * switches off what it does not name, and {@code clearAll} puts everything back.
+     *
+     * <p>Deliberately uses only the two attribute rules, which touch online players and nothing
+     * else - there are none in a GameTest world - and restores whatever was active before, because
+     * every feature's tests share one server.
+     */
+    public static void presetApplyAndClearDriveTheEngine(GameTestHelper helper) {
+        helper.assertTrue(RuleManager.isRunning(),
+                "the engine must have started on the first server tick, or no /rule works at all");
+
+        List<String> before = RuleManager.active();
+        try {
+            int active = RuleManager.applyPreset(
+                    new RulePreset("gametest", List.of("one_heart", "gravity_x3"), true));
+            helper.assertTrue(active == 2, "a replace preset naming two rules leaves two on, not " + active);
+            helper.assertTrue(RuleManager.isActive("one_heart") && RuleManager.isActive("gravity_x3"),
+                    "both named rules should be on");
+
+            RuleManager.set("crafts_x10", true);
+            RuleManager.applyPreset(new RulePreset("gametest2", List.of("one_heart"), true));
+            helper.assertFalse(RuleManager.isActive("crafts_x10"),
+                    "replace=true must switch off a rule the preset does not name");
+            helper.assertFalse(RuleManager.isActive("gravity_x3"),
+                    "including one the previous preset switched on");
+            helper.assertTrue(RuleManager.isActive("one_heart"),
+                    "a rule named by both presets must be left alone, not re-enabled");
+
+            RuleManager.applyPreset(new RulePreset("gametest3", List.of("gravity_x3"), false));
+            helper.assertTrue(RuleManager.isActive("one_heart"),
+                    "replace=false must never switch anything off");
+            helper.assertTrue(RuleManager.isActive("gravity_x3"), "and must add what it names");
+        } finally {
+            RuleManager.clearAll();
+            for (String id : before) {
+                RuleManager.set(id, true);
+            }
+        }
+        helper.assertValueEqual(RuleManager.active(), before, "the active set after the test");
         helper.succeed();
     }
 

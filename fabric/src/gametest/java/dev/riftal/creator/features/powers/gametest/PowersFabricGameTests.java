@@ -80,4 +80,19 @@ public class PowersFabricGameTests implements FabricGameTest {
     public void shieldDomeExpiresAndHandsBackTheBuffs(GameTestHelper helper) {
         PowersGameTests.shieldDomeExpiresAndHandsBackTheBuffs(helper);
     }
+
+    @GameTest(template = EMPTY, timeoutTicks = 120, batch = "creator_powers_reload")
+    public void reloadKeepsTheDomeAndTheWipeHandsItBack(GameTestHelper helper) {
+        PowersGameTests.reloadKeepsTheDomeAndTheWipeHandsItBack(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 120, batch = "creator_powers_logout")
+    public void logoutEndsTheDomeAndThawsThatPlayersMobs(GameTestHelper helper) {
+        PowersGameTests.logoutEndsTheDomeAndThawsThatPlayersMobs(helper);
+    }
+
+    @GameTest(template = EMPTY, batch = "creator_powers_pound_filter")
+    public void groundPoundSparesArmourStandsAndTheCastersOwnPet(GameTestHelper helper) {
+        PowersGameTests.groundPoundSparesArmourStandsAndTheCastersOwnPet(helper);
+    }
 }

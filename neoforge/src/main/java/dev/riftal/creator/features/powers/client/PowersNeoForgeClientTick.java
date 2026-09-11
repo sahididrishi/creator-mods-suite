@@ -24,11 +24,12 @@ public final class PowersNeoForgeClientTick {
         if (!CreatorMods.isEnabled(PowersFeature.ID)) {
             return;
         }
+        // The housekeeping half runs even with a screen open or no player yet; only the key queue
+        // is gated, so an ability cannot fire from behind the pause menu. This is also the only
+        // per-tick hook the feature has on NeoForge - the HUD layer is not drawn at all while F1 is
+        // on, so nothing client-side may depend on the renderer running.
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.screen != null) {
-            return;
-        }
-        PowerKeys.poll();
+        PowersClient.clientTick(minecraft.player != null && minecraft.screen == null);
     }
 
     private PowersNeoForgeClientTick() {

@@ -40,7 +40,7 @@ import java.util.UUID;
  */
 public final class GravitySlam {
 
-    /** Scheduler tag for every slam task. */
+    /** Scheduler tag for every slam task, so {@link #reset()} can wipe them all at once. */
     public static final ResourceLocation TASK_TAG = ArsenalFeature.res("slam");
 
     /** Ticks the victims hang in the air before the slam. */
@@ -55,6 +55,19 @@ public final class GravitySlam {
     /** Cooldown applied to the hammer, in ticks. */
     public static final int COOLDOWN_TICKS = 160;
 
+    /** Points in one victim's block-crack ring. Each point is its own particle packet. */
+    public static final int RING_POINTS = 12;
+
+    /**
+     * How many victims of one slam get a block-crack ring.
+     *
+     * <p>{@link Fx#particleRing} sends one {@code ClientboundLevelParticlesPacket} per point, and
+     * mobs lifted together land together, so an uncapped ring at {@link #MAX_TARGETS} victims was
+     * ~670 particle packets in a single tick - a visible hitch on the recording client. Eight rings
+     * covers the plan's mob pen exactly; everything past that still gets its explosion puff.
+     */
+    public static final int MAX_RINGS = 8;
+
     private static final Map<UUID, GravitySlam> ACTIVE = new HashMap<>();
 
     private final UUID ownerId;
@@ -65,6 +78,7 @@ public final class GravitySlam {
     private ServerPlayer owner;
     private int ticks;
     private boolean slammed;
+    private int ringsLeft = MAX_RINGS;
 
     private GravitySlam(ServerPlayer owner, ServerLevel level, List<LivingEntity> targets) {
         this.ownerId = owner.getUUID();
@@ -107,6 +121,18 @@ public final class GravitySlam {
         }).tag(TASK_TAG);
 
         return !targets.isEmpty();
+    }
+
+    /**
+     * Drops every live slam. Called from {@link dev.riftal.creator.features.arsenal.ArsenalRuntime}
+     * when the server stops, so a slam in flight cannot keep a closed {@code ServerLevel}, its mob
+     * list and a {@code ServerPlayer} reachable for the rest of the JVM's life - and so the first
+     * hammer swing in the <em>next</em> world does not iterate a stale {@code lifted} list and call
+     * {@code removeEffect} on mobs belonging to a level that is gone.
+     */
+    public static void reset() {
+        ACTIVE.clear();
+        TickScheduler.cancelAll(TASK_TAG);
     }
 
     /** Drops the player's slam, removing levitation from anything still hanging. */
@@ -195,21 +221,35 @@ public final class GravitySlam {
             DamageSource source = this.owner != null
                     ? this.level.damageSources().playerAttack(this.owner)
                     : this.level.damageSources().magic();
-            victim.hurt(source, damage);
+            // Through the cooldown: the fall damage this slam itself caused landed earlier in this
+            // same server tick and left the victim's invulnerability window open, which used to
+            // swallow all but (slam - fall) of the hit. See Impact.
+            Impact.hurtThroughCooldown(victim, source, damage);
         }
 
         Vec3 feet = victim.position();
         BlockPos below = BlockPos.containing(feet.x, feet.y - 0.2D, feet.z);
         BlockState state = this.level.getBlockState(below);
-        if (!state.isAir()) {
+        if (!state.isAir() && this.ringsLeft > 0) {
+            this.ringsLeft--;
             BlockParticleOption crack = new BlockParticleOption(ParticleTypes.BLOCK, state);
-            Fx.particleRing(this.level, crack, feet.add(0.0D, 0.1D, 0.0D), 1.2D, 20);
+            Fx.particleRing(this.level, crack, feet.add(0.0D, 0.1D, 0.0D), 1.2D, RING_POINTS);
         }
         Fx.particles(this.level, ParticleTypes.EXPLOSION, feet.add(0.0D, 0.2D, 0.0D), 1, 0.0D, 0.0D);
     }
 
+    /**
+     * Mirrors a victim player's new velocity to its own client.
+     *
+     * <p>The {@code connection != null} guard is load bearing: victims come straight out of an
+     * unfiltered {@code getEntitiesOfClass} scan, so another mod's fake player or a player who
+     * disconnected between the scan and the slam would otherwise throw inside the scheduler task -
+     * which costs the task one of its three failure credits, and after three leaves the slam's
+     * {@code ACTIVE} entry stranded and the hammer visibly dead for that player. Core's own
+     * {@code FabricNetworkHelper#send} documents the same hazard.
+     */
     private static void pushMotion(LivingEntity victim) {
-        if (victim instanceof ServerPlayer player) {
+        if (victim instanceof ServerPlayer player && player.connection != null) {
             player.connection.send(new ClientboundSetEntityMotionPacket(player));
         }
     }

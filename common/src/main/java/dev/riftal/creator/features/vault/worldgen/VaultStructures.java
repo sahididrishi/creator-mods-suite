@@ -8,6 +8,8 @@ import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.pools.StructureTemplatePool;
 
+import java.util.List;
+
 /**
  * Ids for the hand-written worldgen JSON under
  * {@code common/src/main/resources/data/creator_vault/worldgen/}.
@@ -16,7 +18,9 @@ import net.minecraft.world.level.levelgen.structure.pools.StructureTemplatePool;
  * {@code minecraft:jigsaw} structure, so it needs no custom {@code StructureType} and therefore no
  * code at all beyond these constants. Datapack registries are loaded from the jar's data tree by
  * vanilla; this class only exists so the commands, the GameTests and the JUnit resource tests all
- * spell the same ids.
+ * spell the same ids - {@code VaultStructureDataTest} walks {@link #POOLS} and {@link #PIECES}
+ * rather than re-typing them as string literals, so renaming a pool here fails the build instead
+ * of silently generating an empty structure.
  *
  * <p>Everything here is a plain constant - no {@code RegistryEntry.get()} - so it is safe to read
  * from a static context.
@@ -61,11 +65,24 @@ public final class VaultStructures {
     /** The single treasure room, reachable only from the entrance's treasure anchor. */
     public static final ResourceKey<StructureTemplatePool> TREASURE_POOL = pool("treasure");
 
+    /**
+     * Caps the treasure anchor when the treasure room does not fit.
+     *
+     * <p>A separate pool from {@link #CORRIDOR_ENDS_POOL} because a child piece only attaches when
+     * one of its own jigsaws is <em>named</em> what the parent jigsaw <em>targets</em>, and
+     * {@code corridor_end} wears {@code creator_vault:vault_in}, not
+     * {@code creator_vault:treasure_in}.
+     */
+    public static final ResourceKey<StructureTemplatePool> TREASURE_ENDS_POOL = pool("treasure_ends");
+
+    /** Every pool under {@code data/creator_vault/worldgen/template_pool/cursed_vault/}. */
+    public static final List<ResourceKey<StructureTemplatePool>> POOLS = List.of(
+            ENTRANCE_POOL, CORRIDORS_POOL, CORRIDOR_ENDS_POOL, TREASURE_POOL, TREASURE_ENDS_POOL);
+
     /** Every piece name under {@code data/creator_vault/structure/cursed_vault/}. */
-    public static final String[] PIECES = {
+    public static final List<String> PIECES = List.of(
             "entrance", "corridor_straight", "corridor_corner", "corridor_t", "corridor_end",
-            "trap_room", "treasure_room"
-    };
+            "trap_room", "treasure_room", "treasure_end");
 
     private static ResourceKey<StructureTemplatePool> pool(String name) {
         return ResourceKey.create(Registries.TEMPLATE_POOL,

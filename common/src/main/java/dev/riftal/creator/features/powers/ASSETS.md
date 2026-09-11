@@ -27,9 +27,9 @@ python3 common/src/main/java/dev/riftal/creator/features/powers/tools/make_asset
 | `assets/creator_powers/textures/gui/slot_ready.png` | 32×32 RGBA PNG sheet, same layout | PROCEDURAL PLACEHOLDER | The "ready" cell: a brighter rim and the four corner ticks. The ticks exist so ready/not-ready is legible **without colour vision** — keep a non-colour cue of some kind. |
 | `assets/creator_powers/sounds/ui/ability_ready.ogg` | 0.45 s Ogg **Vorbis**, **mono**, 44.1 kHz (ffmpeg two-note sine chime) | PROCEDURAL PLACEHOLDER (`tools/make_assets.py`, needs ffmpeg) | A short, bright two-note bell that survives being heard six times in a stagger. Ship it **mono, 44.1 kHz** — see the limitation below. |
 | `assets/creator_powers/sounds.json` | JSON, 1 event | HAND-WRITTEN, FINAL | — |
-| `assets/creator_powers/lang/en_us.json` | JSON, 30 keys | HAND-WRITTEN, FINAL | Translate it. Ability names (`ability.creator_powers.*`), the key category and six key names (`key.*`), 15 command strings (`commands.creator_powers.*`), the chime subtitle. |
+| `assets/creator_powers/lang/en_us.json` | JSON, 31 keys | HAND-WRITTEN, FINAL | Translate it. Six ability names (`ability.creator_powers.*`), the key category and six key names (`key.*`), 15 command strings (`commands.creator_powers.*`), two feature-list lines and the chime subtitle. |
 | `data/creator_powers/structure/empty.nbt` | GameTest template, 9×9×9 polished-andesite floor | PROVIDED BY THE SCAFFOLD — do not overwrite | — |
-| `creatormods-powers.mixins.json` | JSON, one mixin | HAND-WRITTEN, FINAL | — |
+| `creatormods-powers.mixins.json` | JSON, three mixins (`PowersServerPlayerMixin`, `PowersPlayerListMixin`, `PowersMinecraftServerMixin`) | HAND-WRITTEN, FINAL | — |
 
 ## Known limitations of the placeholders
 

@@ -7,7 +7,12 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerPlayerGameMode;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -20,8 +25,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * {@code blocks_explode}'s hook: a player-driven block break that actually succeeded.
  *
  * <p>The state is captured at HEAD because by RETURN the block is already air, and the rule wants to
- * know what it was. Nothing is cancelled here - the explosion is scheduled a tick later by the rule
+ * know what it was. Nothing is cancelled there - the explosion is scheduled a tick later by the rule
  * so the break has fully finished first.
+ *
+ * <p>The same class also carries {@code hearts_currency}'s shop-block interaction: a right click on
+ * anything in {@code #creator_rules:shop_blocks} opens the heart shop. {@code useItemOn} is the
+ * server-side funnel for every block interaction a player makes, so one injection covers both
+ * loaders without a Fabric/NeoForge event.
  */
 @Mixin(ServerPlayerGameMode.class)
 public abstract class RulesServerPlayerGameModeMixin {
@@ -55,5 +65,23 @@ public abstract class RulesServerPlayerGameModeMixin {
             return;
         }
         RuleHooks.onBlockDestroyed(this.player, this.level, pos, state);
+    }
+
+    @Inject(
+            method = "useItemOn(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/Level;"
+                    + "Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/InteractionHand;"
+                    + "Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;",
+            at = @At("HEAD"),
+            cancellable = true)
+    private void creator_rules$openShopBlock(ServerPlayer interactingPlayer, Level interactionLevel,
+                                             ItemStack stack, InteractionHand hand,
+                                             BlockHitResult hitResult,
+                                             CallbackInfoReturnable<InteractionResult> cir) {
+        if (!CreatorMods.isEnabled(RulesFeature.ID)) {
+            return;
+        }
+        if (RuleHooks.onUseShopBlock(interactingPlayer, interactionLevel, hand, hitResult)) {
+            cir.setReturnValue(InteractionResult.SUCCESS);
+        }
     }
 }

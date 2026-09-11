@@ -88,7 +88,10 @@ public class CursedAltarBlock extends BaseEntityBlock {
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state,
                                                                   BlockEntityType<T> blockEntityType) {
         if (level.isClientSide) {
-            return null;
+            // Not the state machine - a counter, so CursedAltarRenderer can interpolate the
+            // crystal's rise across the charge. chargeTicks is server-only and never synced.
+            return createTickerHelper(blockEntityType, VaultFeature.CURSED_ALTAR_BE.get(),
+                    CursedAltarBlockEntity::clientTick);
         }
         return createTickerHelper(blockEntityType, VaultFeature.CURSED_ALTAR_BE.get(),
                 CursedAltarBlockEntity::serverTick);

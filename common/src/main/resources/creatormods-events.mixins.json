@@ -3,8 +3,18 @@
   "minVersion": "0.8",
   "package": "dev.riftal.creator.features.events.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["EventsSpawnStateMixin"],
-  "client": ["EventsClientLevelMixin"],
+  "mixins": [
+    "EventsEntityCallbacksMixin",
+    "EventsLocalMobCapCalculatorMixin",
+    "EventsNaturalSpawnerMixin",
+    "EventsPlayerListMixin",
+    "EventsSpawnStateMixin"
+  ],
+  "client": [
+    "EventsClientLevelMixin",
+    "EventsFogRendererMixin",
+    "EventsMinecraftMixin"
+  ],
   "server": [],
   "injectors": {
     "defaultRequire": 1

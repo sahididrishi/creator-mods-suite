@@ -6,6 +6,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import dev.riftal.creator.core.command.CommandHelper;
+import dev.riftal.creator.features.powers.PowersFeature;
 import dev.riftal.creator.features.powers.ability.Ability;
 import dev.riftal.creator.features.powers.ability.AbilityRegistry;
 import dev.riftal.creator.features.powers.ability.UseResult;
@@ -251,21 +252,48 @@ public final class PowerCommand {
         return EntityArgument.getPlayers(ctx, "targets");
     }
 
+    /**
+     * The ability named by the {@code ability} argument, or null.
+     *
+     * <p>A bare {@code dash} typed during a take parses as {@code minecraft:dash} - vanilla's
+     * {@code ResourceLocation} grammar defaults the namespace - and the registry only ever holds
+     * {@code creator_powers:*}. Tab completion hides that, but nobody tab-completes with the camera
+     * running, so an unqualified path falls back to this feature's own namespace.
+     */
     private static Ability ability(CommandContext<CommandSourceStack> ctx) {
-        ResourceLocation id;
-        try {
-            id = ResourceLocationArgument.getId(ctx, "ability");
-        } catch (IllegalArgumentException notPresent) {
+        ResourceLocation id = abilityId(ctx);
+        if (id == null) {
             return null;
         }
         Optional<Ability> found = AbilityRegistry.get(id);
-        return found.orElse(null);
+        if (found.isPresent()) {
+            return found.get();
+        }
+        if (ResourceLocation.DEFAULT_NAMESPACE.equals(id.getNamespace())) {
+            return AbilityRegistry.get(ResourceLocation.fromNamespaceAndPath(
+                    PowersFeature.NAMESPACE, id.getPath())).orElse(null);
+        }
+        return null;
+    }
+
+    private static ResourceLocation abilityId(CommandContext<CommandSourceStack> ctx) {
+        try {
+            return ResourceLocationArgument.getId(ctx, "ability");
+        } catch (IllegalArgumentException notPresent) {
+            return null;
+        }
     }
 
     private static int unknownAbility(CommandContext<CommandSourceStack> ctx) {
+        ResourceLocation id = abilityId(ctx);
+        // Echo what was typed, not what it parsed to: an unqualified path came in as `dash`, and
+        // answering "unknown ability 'minecraft:dash'" would send the creator hunting for a typo
+        // they did not make.
+        String typed = id == null ? ""
+                : ResourceLocation.DEFAULT_NAMESPACE.equals(id.getNamespace()) ? id.getPath() : id.toString();
         String known = String.join(", ", AbilityRegistry.ordered().stream().map(Ability::path).toList());
         return CommandHelper.error(ctx.getSource(),
-                Component.translatable("commands.creator_powers.unknown_ability", known));
+                Component.translatable("commands.creator_powers.unknown_ability", typed, known));
     }
 
     private PowerCommand() {

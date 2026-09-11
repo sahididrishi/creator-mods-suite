@@ -9,17 +9,25 @@ import dev.riftal.creator.features.evolve.perk.impl.ThickSkinPerk;
 import dev.riftal.creator.features.evolve.stage.EvolutionStage;
 import dev.riftal.creator.features.evolve.stage.Stages;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * The five built-in passives, one per stage, and the plumbing that runs them.
  *
  * <p>Perks are singletons and stateless apart from the odd per-player counter. They are driven from
  * {@code EvolveServerHooks}: {@link #tick} from the five-tick heartbeat, {@link #onLand} from the
- * fall-damage mixin, {@link #roar} from {@code /evolve roar}.
+ * fall-damage mixin, {@link #onAttack} from the attack mixin, {@link #roar} from
+ * {@code /evolve roar}.
+ *
+ * <p>Those per-player counters are the reason {@link #clearAll()} and {@link #retain(Set)} exist:
+ * nothing else in the feature knows a perk holds a map, so the heartbeat prunes them every pass and
+ * {@code armHeartbeat} empties them on every server start and {@code /reload}.
  */
 public final class StagePerks {
 
@@ -69,6 +77,18 @@ public final class StagePerks {
     }
 
     /**
+     * Runs the stage's attack hook, from the head of {@code Player#attack}.
+     *
+     * @return true when the perk did something
+     */
+    public static boolean onAttack(ServerPlayer player, EvolutionData data, Entity target) {
+        if (data.transforming()) {
+            return false;
+        }
+        return forStage(data.stage()).onAttack(player, target);
+    }
+
+    /**
      * Runs the stage's roar hook.
      *
      * @return how many mobs were affected; 0 for every stage but Apex
@@ -81,6 +101,20 @@ public final class StagePerks {
     public static void revokeAll(ServerPlayer player) {
         for (StagePerk perk : ALL) {
             perk.revoke(player);
+        }
+    }
+
+    /** Empties every perk's per-player bookkeeping. Called from {@code armHeartbeat}. */
+    public static void clearAll() {
+        for (StagePerk perk : ALL) {
+            perk.clearAll();
+        }
+    }
+
+    /** Drops the bookkeeping of every player not in {@code onlinePlayerIds}. */
+    public static void retain(Set<UUID> onlinePlayerIds) {
+        for (StagePerk perk : ALL) {
+            perk.retain(onlinePlayerIds);
         }
     }
 

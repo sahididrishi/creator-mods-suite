@@ -93,4 +93,17 @@ public enum AttackKind {
         AttackKind[] values = values();
         return id >= 0 && id < values.length ? values[id] : NONE;
     }
+
+    /**
+     * Looks a kind up by its enum name, for NBT. Anything unknown - a tag written by an older or
+     * newer build - reads as {@link #NONE} rather than throwing on a world load.
+     */
+    public static AttackKind byName(String name) {
+        for (AttackKind kind : values()) {
+            if (kind.name().equals(name)) {
+                return kind;
+            }
+        }
+        return NONE;
+    }
 }

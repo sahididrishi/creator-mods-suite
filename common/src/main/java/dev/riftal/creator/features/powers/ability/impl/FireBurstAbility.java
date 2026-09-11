@@ -64,7 +64,7 @@ public final class FireBurstAbility implements Ability {
         Vec3 look = context.look();
 
         List<Entity> candidates = level.getEntities(player, player.getBoundingBox().inflate(RANGE),
-                entity -> entity instanceof LivingEntity && entity.isAlive() && !entity.isSpectator());
+                entity -> entity instanceof LivingEntity && AbilityFx.canAffect(player, entity));
 
         for (Entity entity : candidates) {
             Vec3 centre = entity.position().add(0.0D, entity.getBbHeight() * 0.5D, 0.0D);
@@ -80,8 +80,10 @@ public final class FireBurstAbility implements Ability {
             LivingEntity victim = (LivingEntity) entity;
             victim.hurt(level.damageSources().indirectMagic(player, player), DAMAGE);
             victim.igniteForSeconds(BURN_SECONDS);
-            Vec3 push = AbilityFx.direction(eye, centre, look).scale(KNOCKBACK);
-            AbilityFx.nudge(victim, new Vec3(push.x, 0.25D, push.z));
+            if (!AbilityFx.isBoss(victim)) {
+                Vec3 push = AbilityFx.direction(eye, centre, look).scale(KNOCKBACK);
+                AbilityFx.nudge(victim, new Vec3(push.x, 0.25D, push.z));
+            }
         }
 
         Fx.sound(level, player.position(), SoundEvents.FIRECHARGE_USE, SoundSource.PLAYERS, 1.0F, 0.9F);

@@ -14,8 +14,16 @@ import net.minecraft.resources.ResourceLocation;
  * <p>Sent when an ability fires (so the sweep starts on the exact server tick), and also when the
  * server <em>rejects</em> a use - in that case it carries the unchanged {@code readyAt}, which
  * silently corrects a client that had predicted wrong. No chat, no error sound, no spam.
+ *
+ * @param refused {@code true} when this packet is answering a press the server turned down: the
+ *                key was pressed during the cooldown, or {@code canUse} said no (a ground pound on
+ *                the ground, an ender pull with nothing under the crosshair). The HUD shakes the
+ *                slot and stays silent. Without the flag a refusal is indistinguishable from a
+ *                zero-length cooldown, and the client's ready edge-detector rings the "ability
+ *                ready" chime at a player who was just told no.
  */
-public record CooldownStartPayload(ResourceLocation abilityId, long startedAt, long readyAt, long serverGameTime)
+public record CooldownStartPayload(ResourceLocation abilityId, long startedAt, long readyAt,
+                                   long serverGameTime, boolean refused)
         implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<CooldownStartPayload> TYPE =
@@ -27,6 +35,7 @@ public record CooldownStartPayload(ResourceLocation abilityId, long startedAt, l
                     ByteBufCodecs.VAR_LONG, CooldownStartPayload::startedAt,
                     ByteBufCodecs.VAR_LONG, CooldownStartPayload::readyAt,
                     ByteBufCodecs.VAR_LONG, CooldownStartPayload::serverGameTime,
+                    ByteBufCodecs.BOOL, CooldownStartPayload::refused,
                     CooldownStartPayload::new);
 
     @Override

@@ -31,6 +31,7 @@
   "title.creator_events.siege.sub": "%s waves incoming",
   "title.creator_events.wave": "WAVE %1$s/%2$s",
   "title.creator_events.siege_repelled": "SIEGE REPELLED",
+  "title.creator_events.siege_no_room": "No room to spawn the wave - move to open ground",
 
   "bossbar.creator_events.siege": "SIEGE — Wave %1$s/%2$s",
 

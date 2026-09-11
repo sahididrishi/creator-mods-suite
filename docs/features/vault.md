@@ -9,7 +9,7 @@
 | Feature id | `vault` |
 | Resource namespace | `creator_vault` |
 | Root command | `/vault` (op level 2) |
-| Plan | [`plans/08-cursed-vault.md`](../../plans/08-cursed-vault.md) |
+| Plan | [`plans/08-cursed-vault.md`](../../../plans/08-cursed-vault.md) |
 | Code | `common/src/main/java/dev/riftal/creator/features/vault/` |
 | Assets inventory | [`ASSETS.md`](../../common/src/main/java/dev/riftal/creator/features/vault/ASSETS.md) |
 
@@ -28,40 +28,56 @@ Java worldgen code, just hand-written JSON under `data/creator_vault/worldgen/`.
   every overworld biome, modded ones included, as long as they are tagged correctly.
 * **Depth** `step: underground_structures`, `start_height: {"absolute": -30}`,
   `terrain_adaptation: bury`, `liquid_settings: ignore_waterlogging` (aquifers do not flood it).
-* **Pieces** seven templates in `data/creator_vault/structure/cursed_vault/`: `entrance`,
+* **Pieces** eight templates in `data/creator_vault/structure/cursed_vault/`: `entrance`
+  (11x24x11 - the entry hall with a capped ladder shaft rising out of its corner),
   `corridor_straight`, `corridor_corner`, `corridor_t`, `corridor_end`, `trap_room`,
-  `treasure_room`.
+  `treasure_room`, `treasure_end`. Doorways are one block wide and **three** tall, because the
+  Vault Keeper is 2.3 blocks tall and cannot fit through a 1x2 hole.
 
-Four template pools wire them together:
+Five template pools wire them together:
 
 | Pool | Fallback | Elements (weight) |
 |---|---|---|
 | `creator_vault:cursed_vault/entrance` | `minecraft:empty` | `entrance` (1) |
 | `creator_vault:cursed_vault/corridors` | `…/corridor_ends` | `corridor_straight` (4), `corridor_corner` (3), `corridor_t` (2), `trap_room` (2) |
 | `creator_vault:cursed_vault/corridor_ends` | `minecraft:empty` | `corridor_end` (1) |
-| `creator_vault:cursed_vault/treasure` | `minecraft:empty` | `treasure_room` (1) |
+| `creator_vault:cursed_vault/treasure` | `…/treasure_ends` | `treasure_room` (1) |
+| `creator_vault:cursed_vault/treasure_ends` | `minecraft:empty` | `treasure_end` (1) |
 
 Jigsaw naming, which is what makes exactly one treasure room appear: corridor exits are named
 `creator_vault:vault_out` and target `creator_vault:vault_in`; the entrance carries one extra
 jigsaw named `creator_vault:treasure_anchor` pointing at the `treasure` pool, and the treasure room
 is the only piece with a `creator_vault:treasure_in` connector. No `max_count`, no extra API.
+That anchor carries `selection_priority: 10` so the 13x13 treasure room claims its space before the
+three corridor exits do (`SinglePoolElement.sortBySelectionPriority` sorts descending). If it still
+does not fit, the `treasure_ends` fallback caps the doorway with `treasure_end` - it cannot fall
+back to `corridor_ends`, because a child only attaches when one of its jigsaws is *named* what the
+parent *targets*, and `corridor_end` wears `creator_vault:vault_in`.
 
-The trap room always holds a vanilla chest with `creator_vault:chests/cursed_vault_trap`, which
-contains a **guaranteed Vault Key** - so a survival player who finds a vault can always open it
-without a command.
+The trap room is a real trap: two tripwire lines across the floor, each with a hook at either end,
+and four dispensers loaded with arrows set into the walls above the hooks' anchor blocks. It also
+holds a vanilla chest with `creator_vault:chests/cursed_vault_trap`, which contains a **guaranteed
+Vault Key** - so a survival player who finds a vault can always open it without a command.
 
 ### The loop
 
 1. **Cursed Altar** (`creator_vault:cursed_altar`) sits on the treasure-room dais with a
    `state` blockstate property: `sealed` → `charging` → `active` → `spent`. Because the state lives
    in the blockstate rather than in a payload, late joiners, `/reload` and relogs all look right.
-   Light level 3 when sealed, 10 otherwise.
+   Light level 3 when sealed, 10 otherwise. The pedestal is a plain block model; the crystal above
+   it is drawn by `CursedAltarRenderer`, so it bobs while dormant, **rises and spins up across the
+   60-tick charge**, holds lit while the Keeper is out and drops dark when the altar is spent. The
+   animation is derived from the blockstate and the world clock, not from a triggered clip, so
+   every client sees the same thing however late it joined.
 2. **Right-click it with a Vault Key.** One key is consumed (not in creative). The altar scans 16
    blocks for Sealed Chests, records each one's position *and facing*, rolls a loot seed and starts
    a **60-tick (3 s)** charge with a shrinking particle ring.
 3. **The Vault Keeper bursts out** beside the altar: 80 HP, 8 attack, 6 armour, purple boss bar,
-   fire immune, persistent, and leashed to its altar (it walks home past 20 blocks and is teleported
-   back past 48, so it cannot be kited out of the room between takes).
+   fire immune, persistent, and leashed to its altar. The soft half of the leash is a goal that
+   walks it home past 20 blocks while it is idle; the hard half lives in `customServerAiStep` and
+   runs **every tick whether or not it has a target**, teleporting it back past 48 - which is the
+   only way it can stop a player kiting it up the entrance shaft, since a kiting player *is* the
+   target.
 4. **Kill it** and every recorded Sealed Chest is replaced, on the same tick, by a vanilla chest
    carrying `creator_vault:chests/cursed_vault` - obsidian particles, a crack, and loot that rolls
    the first time a player opens it, exactly like a dungeon chest.
@@ -105,9 +121,9 @@ recording; failures are always visible.
 | `/vault key <count>` | `1..16` | 2 | As above, n keys | `Gave n Vault Key(s)` |
 | `/vault reset` | — | 2 | Nearest altar within **32** blocks: re-seal its chests, discard the Keeper, back to `sealed` | `Reset altar at x y z (n chest(s) re-sealed, keeper removed)` |
 | `/vault reset <radius>` | `1..128` | 2 | As above with your own search radius | as above |
-| `/vault spawn_keeper` | — | 2 | Spawns a Keeper where you stand and hands it to the nearest altar, so its death still unseals | `Spawned Vault Keeper (bound to altar at x y z)` / `(unbound …)` |
-| `/vault unseal` | — | 2 | Skip the fight: primes a sealed altar first, then opens every chest it knows about | `Unsealed n chest(s)` |
-| `/vault tp` | — | 2 | Finds the nearest `creator_vault:cursed_vault` within **100 chunks** and teleports you to the altar, or to a standable pocket at the vault's Y | `Teleported to creator_vault:cursed_vault at x y z` |
+| `/vault spawn_keeper` | — | 2 | Spawns a Keeper where you stand and hands it to the nearest altar, so its death still unseals. If no altar takes it, it is left ordinary and un-persistent rather than littering the set | `Spawned Vault Keeper (bound to altar at x y z)` / `(unbound …)` |
+| `/vault unseal` | — | 2 | Skip the fight: primes a sealed altar first, then opens every chest it knows about. With no altar in range it falls back to opening every Sealed Chest within 16 blocks, which is the recovery path for an altar mined by accident | `Unsealed n chest(s)` / `No altar - unsealed n orphaned chest(s) around you` |
+| `/vault tp` | — | 2 | Finds the nearest `creator_vault:cursed_vault` within **100 chunks**, teleports you to the vault's Y immediately, then a second later - once those chunks have actually loaded - moves you onto the altar | `Teleported to creator_vault:cursed_vault at x y z` |
 | `/vault status` | — | 2 | Four lines: altar position, state and charge, keeper alive / missing-tick countdown, chest count and your key counter | multi-line |
 
 Failure lines (always shown, even in silent mode):
@@ -180,6 +196,10 @@ Useful during a shoot:
 Known, deliberate behaviours worth not being surprised by on camera:
 
 * Two altars within 16 blocks of the same chest will both record it; unsealing either opens it.
+  The HUD keys its readout by altar position and shows the nearest one, so it does not flicker
+  between the two.
+* Only the Keeper an altar is actually bound to can unseal it. A leftover Keeper from an earlier
+  take, or one caught by a stray `/kill`, is ignored.
 * Breaking the altar unbinds its Keeper (the Keeper lives on) and leaves the chests sealed.
   `/vault unseal` still works from anywhere near them.
 * Offering a key to a charging, active or spent altar is refused and the key is **not** consumed.
@@ -193,11 +213,13 @@ Known, deliberate behaviours worth not being surprised by on camera:
 |---|---|
 | `common/src/test/.../vault/AltarStateMachineTest` | the transition table, charge progress, timing invariants |
 | `…/AltarStateTest` | serialized-name round trip and the unknown-name fallback |
-| `…/VaultStructureDataTest` | every pool element has an `.nbt`, fallbacks exist, 1.21 singular folder names, structure/structure-set fields, loot bounds |
+| `…/VaultStructureDataTest` | every pool element has an `.nbt`, fallbacks exist and are not `minecraft:empty` where that would leave a hole, 1.21 singular folder names, structure/structure-set fields, and the `VaultStructures` id constants really are the ids the JSON uses |
+| `…/VaultPieceNbtTest` | decodes the shipped `.nbt`: the entrance really has a capped ladder shaft, the trap room really has arrow dispensers behind tripwire, every doorway is three blocks tall, the treasure fallback can actually attach |
+| `…/VaultLootTableTest` | weights positive, counts in range, a 100k-draw distribution inside tolerance, and the guaranteed enchanted book / guaranteed Vault Key |
 | `…/VaultAssetsTest` | every `Component.translatable` key has a lang line; every blockstate → model → texture chain resolves; every `sounds.json` entry has an `.ogg` and a subtitle; textures are power-of-two |
 | `…/VaultStatusPayloadTest` | the state ⇄ ordinal round trip and the out-of-range fallback |
-| `…/VaultHudStateTest` | the client cache's last-wins, clear and staleness contract |
-| `common/.../vault/gametest/VaultGameTests` | 16 in-game tests: charge and summon, both interaction paths, key refusal, keeper death, adoption, NBT round trip, reset, unbreakable chest, loot table, scan semantics, nearest-altar lookup, `/vault reset` through Brigadier |
+| `…/VaultHudStateTest` | the client cache's last-wins, clear and staleness contract, and that two altars in range do not overwrite each other |
+| `common/.../vault/gametest/VaultGameTests` | 22 in-game tests: charge and summon, both interaction paths, key refusal, keeper death, adoption, NBT round trip, reset, unbreakable chest, loot table, scan semantics, nearest-altar lookup, `/vault reset` through Brigadier - plus the tether firing while the Keeper has a target, a stray Keeper failing to unseal, a second adoption retiring the first, reset sweeping a forgotten Keeper, altar-less `/vault unseal`, and a per-chest loot override surviving a reset |
 
 Every altar GameTest runs in its **own batch**: `StructureGridSpawner` puts test arenas 14 blocks
 apart and the altar's chest scan reaches 16, so two of them side by side would unseal each other's

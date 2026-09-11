@@ -55,6 +55,9 @@
           "name": "head",
           "parent": "body",
           "pivot": [0, 64, 0],
+          "locators": {
+            "mouth": [0, 70, -7]
+          },
           "cubes": [
             {
               "origin": [-7, 64, -7],
@@ -79,6 +82,9 @@
           "name": "hand_right",
           "parent": "arm_right",
           "pivot": [-17, 32, 0],
+          "locators": {
+            "hand_right_tip": [-17, 22, 0]
+          },
           "cubes": [
             {
               "origin": [-22, 22, -5],
@@ -103,6 +109,9 @@
           "name": "hand_left",
           "parent": "arm_left",
           "pivot": [17, 32, 0],
+          "locators": {
+            "hand_left_tip": [17, 22, 0]
+          },
           "cubes": [
             {
               "origin": [12, 22, -5],

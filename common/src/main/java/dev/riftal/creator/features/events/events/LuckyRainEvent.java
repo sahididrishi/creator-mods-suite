@@ -22,7 +22,7 @@ import java.util.List;
  * {@code luckyrain} - gold "?" blocks fall around every player and burst into a random outcome.
  *
  * <p>Options: {@code interval} (ticks between drops, default 20), {@code radius} (default 12),
- * {@code duration} (seconds, default 60).
+ * {@code duration} (seconds, default 60), {@code luck} (-5..5, default 0).
  */
 public final class LuckyRainEvent implements WorldEvent {
 
@@ -41,6 +41,7 @@ public final class LuckyRainEvent implements WorldEvent {
     private int interval = DEFAULT_INTERVAL;
     private double radius = DEFAULT_RADIUS;
     private int durationTicks = 1200;
+    private int luck;
 
     @Override
     public String id() {
@@ -57,6 +58,17 @@ public final class LuckyRainEvent implements WorldEvent {
         interval = ctx.options().getInt("interval", DEFAULT_INTERVAL, 2, 200);
         radius = ctx.options().getDouble("radius", DEFAULT_RADIUS, 2.0D, 48.0D);
         durationTicks = ctx.options().getInt("duration", 60, 1, 3600) * 20;
+        luck = ctx.options().getInt("luck", 0, -5, 5);
+    }
+
+    /**
+     * Player luck for the drop table, from {@code /event start luckyrain luck=2}.
+     *
+     * <p>Read back by {@code LuckyRainBlock#roll}: the weighting formula and the {@code "luck"}
+     * field of every shipped outcome were inert while this was hardcoded to zero.
+     */
+    public int luck() {
+        return luck;
     }
 
     @Override
@@ -98,6 +110,7 @@ public final class LuckyRainEvent implements WorldEvent {
         tag.putInt("interval", interval);
         tag.putDouble("radius", radius);
         tag.putInt("duration", durationTicks);
+        tag.putInt("luck", luck);
     }
 
     @Override
@@ -105,6 +118,7 @@ public final class LuckyRainEvent implements WorldEvent {
         interval = Math.max(2, tag.getInt("interval"));
         radius = Math.max(2.0D, tag.getDouble("radius"));
         durationTicks = Math.max(20, tag.getInt("duration"));
+        luck = Math.max(-5, Math.min(5, tag.getInt("luck")));
     }
 
     private void dropOne(ServerLevel level, Vec3 centre, RandomSource random) {

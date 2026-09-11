@@ -10,7 +10,7 @@ Nothing here is finished art - see ASSETS.md next to this folder. It is delibera
 flat: three tones per material, a hard one-pixel outline, no shading ramps, no
 noise. What it *is* is readable: each sprite has the silhouette of the weapon it
 stands for, so a recording with placeholder art still reads on camera, and one
-shared palette runs through all six files.
+shared palette runs through all nine files.
 
 Palette (the whole feature):
 
@@ -156,21 +156,34 @@ def grapple_blade():
     return c
 
 
-def storm_bow():
-    """Recurve bow, limbs on the left, live cyan string down the right."""
+def storm_bow(stage=None):
+    """Recurve bow, limbs on the left, live cyan string down the right.
+
+    stage=None is the bow at rest. stage 0/1/2 are the three vanilla draw states
+    (storm_bow_pulling_0..2): the limbs bend further forward and the string is
+    pulled further back each step, and the tip sparks grow, so the full draw -
+    the one that calls lightning - is unmistakable in first person.
+    """
     c = Canvas(16, 16)
+    # How far the limbs bow forward and the string is hauled back, per draw state.
+    bend, haul, spark = ((0, 0, 1), (1, 1, 2), (2, 2, 3), (3, 3, 4))[0 if stage is None else stage + 1]
+
     # Limbs: an arc through five control points, drawn as four segments.
-    arc = [(4, 2), (7, 4), (9, 8), (7, 12), (4, 14)]
+    arc = [(4, 2), (7 + bend, 4), (9 + bend, 8), (7 + bend, 12), (4, 14)]
     for (x0, y0), (x1, y1) in zip(arc, arc[1:]):
         c.line(x0, y0, x1, y1, WOOD_HI)
-    c.line(6, 4, 8, 8, WOOD_LO)
-    c.line(8, 8, 6, 12, WOOD_LO)
-    # Nocks and the string between them.
+    c.line(6 + bend, 4, 8 + bend, 8, WOOD_LO)
+    c.line(8 + bend, 8, 6 + bend, 12, WOOD_LO)
+    # Nocks, and the string between them - drawn as two segments meeting at the
+    # nocking point so a drawn string reads as the vanilla V.
     c.pixels([(4, 1), (4, 15)], WOOD_LO)
-    c.line(4, 2, 4, 14, STORM_LO)
-    c.line(3, 3, 3, 13, STORM_HI)
-    # Sparks at the tips.
-    c.pixels([(6, 1), (2, 2), (6, 15), (2, 14), (10, 8)], STORM_HI)
+    c.line(4, 2, 3 - haul, 8, STORM_LO)
+    c.line(3 - haul, 8, 4, 14, STORM_LO)
+    c.line(3, 3, 2 - haul, 8, STORM_HI)
+    c.line(2 - haul, 8, 3, 13, STORM_HI)
+    # Sparks at the tips, more of them the further the bow is drawn.
+    tips = [(6, 1), (2, 2), (6, 15), (2, 14), (10 + bend, 8), (0, 5), (0, 11), (12 + bend, 4)]
+    c.pixels(tips[:spark + 4], STORM_HI)
     c.outline()
     return c
 
@@ -262,6 +275,9 @@ def main():
     write_out = [
         (os.path.join(TEXTURES, "item", "grapple_blade.png"), grapple_blade()),
         (os.path.join(TEXTURES, "item", "storm_bow.png"), storm_bow()),
+        (os.path.join(TEXTURES, "item", "storm_bow_pulling_0.png"), storm_bow(0)),
+        (os.path.join(TEXTURES, "item", "storm_bow_pulling_1.png"), storm_bow(1)),
+        (os.path.join(TEXTURES, "item", "storm_bow_pulling_2.png"), storm_bow(2)),
         (os.path.join(TEXTURES, "item", "gravity_hammer.png"), gravity_hammer()),
         (os.path.join(TEXTURES, "item", "soul_scythe.png"), soul_scythe()),
         (os.path.join(TEXTURES, "entity", "grapple_hook.png"), grapple_hook()),

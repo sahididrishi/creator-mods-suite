@@ -42,15 +42,18 @@ plays a roar the boss is invulnerable during, and recolours the boss bar.
 
 **Slam** (phase 1+) — a 40-tick clip, impact at tick 20, then an eight-tick shockwave ring that
 expands to 7 blocks. It deals 10 + 25 % of the boss' attack damage, throws victims out and up,
-draws block-crack particles and fires the vanilla block-break effect every 45 degrees. One hit per
-victim per slam, however many times the band sweeps over them. The boss' own minions are exempt.
+draws block-crack particles along the ring every tick and cracks the floor audibly — four vanilla
+block-break effects, 90 degrees apart — on the impact tick only. One hit per victim per slam,
+however many times the band sweeps over them. The boss' own minions are exempt.
 
 **Lava Rain** (phase 2+) — twelve ash bombs over 24 ticks, re-aimed at the live target on every
 bomb. A bomb does 6 damage plus a 3-second burn, and leaves a 3x3 fire patch that **puts itself out
 after 80 ticks**, so a second take starts on a clean floor. Fire patches respect `mobGriefing`.
 
-**Summon** (phase 2+) — three Ashen Minions claw out of the floor, capped at six alive, with a
-400-tick cooldown. Minions are never hit by their own boss' shockwave or ring, and crumble to smoke
+**Summon** (phase 2+) — three Ashen Minions claw out of the floor, capped at six alive, every
+400 ticks (20 seconds). The summon is a **schedule, not a weighted roll**: the moment its timer is
+up and there is room under the cap it is the boss' next attack, so the "minions rise" beat lands
+when you expect it instead of several attack cycles late. Minions are never hit by their own boss' shockwave or ring, and crumble to smoke
 the moment the boss dies.
 
 **Enrage** (phase 3) — +50 % movement speed, an emissive "enraged" texture swap, and a ring of fire
@@ -60,7 +63,9 @@ burning anything outside it every 20 ticks.
 **Combo** (phase 3) — three hits at ticks 10 / 22 / 38 for 8 / 8 / 12 damage in a 3.5-block frontal
 arc, with the boss re-facing its target between swings.
 
-**Death** — a 70-tick collapse. The loot table and an 800 XP orb burst land on the *last* tick, not
+**Death** — a 70-tick collapse. It also puts the arena out: every fire patch still burning from
+the last lava-rain volley is removed on the first tick of the collapse, so take two starts on a
+clean floor even if `/colossus kill` lands mid-volley. The loot table and an 800 XP orb burst land on the *last* tick, not
 the moment the health bar empties, so the drop bursts out of a corpse rather than out of a boss that
 is still standing.
 
@@ -73,6 +78,26 @@ is still standing.
   for a boss at most every 10 ticks.
 * **Camera shake** on slam impact (0.6 / 12 t), phase roars (0.4 / 20 t), spawn (0.35 / 40 t),
   death (0.5 / 40 t) and footsteps (0.15 / 4 t), falling off with distance.
+* **The camera is never a target.** A player in creative or spectator mode is skipped by the slam,
+  the roar, the combo, the ash bombs and the ring of fire alike — no damage, no knockback, no fire
+  overlay — so a second operator can fly through the arena for the wide shot. Note that the boss
+  will not *target* a creative player either (vanilla `NearestAttackableTargetGoal` skips them), so
+  the fight needs a body in survival or adventure mode on camera, or a spawned target mob.
+
+### Registered content
+
+| Registry / mechanism | Ids (namespace `creator_colossus`) |
+|---|---|
+| Entity type | `ashen_colossus`, `ashen_minion`, `ash_bomb` |
+| Item | `ashen_colossus_spawn_egg`, `ashen_minion_spawn_egg` |
+| Sound event | `colossus.roar`, `colossus.swing`, `colossus.slam`, `colossus.step`, `colossus.hurt`, `colossus.death`, `minion.hurt`, `minion.death` |
+| Creative tab | `creator_colossus` — **Ashen Colossus** |
+| Player data attachment | `creator_colossus:last_arena` (string, survives death) |
+| Payload (S2C) | `creator_colossus:screen_shake` — cosmetic only |
+| Saved data | `creator_colossus_arenas` per level |
+| Loot tables | `creator_colossus:entities/ashen_colossus`, `creator_colossus:entities/ashen_minion` |
+
+No blocks, no block entities, no particle types, no gamerules and no recipes.
 
 ---
 
@@ -184,20 +209,39 @@ Handy while shooting:
 ```
 common/src/main/java/dev/riftal/creator/features/colossus/
 ├── ColossusFeature.java                  registration, creative tab, lifecycle
-├── BossPhase / AttackKind / AttackSelector / Shockwave / ArenaRing / FirePatches   pure logic
+├── BossPhase / AttackKind / AttackSelector / Shockwave / ArenaRing / FirePatches / Combatants
+│                                         pure logic (Combatants is the creative/spectator filter)
 ├── entity/       AshenColossusEntity, AshenMinionEntity, AshBombEntity
 ├── entity/ai/    one goal per attack + the chooser + the approach goal
 ├── arena/        Arena, ArenaSavedData
 ├── command/      ColossusCommand
+├── net/          ScreenShakePayload                     (S2C, cosmetic)
 ├── client/       renderers, models, HUD, screen shake   (client only)
 ├── mixin/        ColossusCameraMixin                    (client only, toggle-guarded)
-├── gametest/     ColossusGameTests
 └── tools/        the placeholder art, audio and GameTest-arena generators
+
+common/src/gametest/java/dev/riftal/creator/features/colossus/gametest/ColossusGameTests.java
 
 common/src/main/resources/assets/creator_colossus/    geo, animations, textures, sounds, lang, models
 common/src/main/resources/data/creator_colossus/      loot tables, GameTest structures
 common/src/test/java/dev/riftal/creator/features/colossus/    JUnit
 ```
+
+## What it deliberately does not do
+
+* **No worldgen and no natural spawning.** The boss exists because you typed `/colossus spawn` or
+  used a spawn egg; the entity types are not in any biome's spawn list and there is no structure.
+* **No custom config file**, and no `/colossus reload`. The tuning table below is compiled in —
+  change `AttackKind`, `AshenColossusEntity` or `ArenaRing` and rebuild.
+* **No GeckoLib sound or particle keyframes.** Every sound and particle in the fight is emitted from
+  the server on the ticks in `AttackKind`, because keyframe handlers run on the client render thread
+  only and would double up what the server already plays.
+* **The camera shake is cosmetic and one-way.** It is an S2C payload with no client acknowledgement;
+  a client without the mod simply does not shake.
+* **The ring never closes tighter than 6 blocks**, and an arena smaller than that keeps its own
+  radius rather than being expanded to fit.
+* **All art and audio is placeholder.** See `ASSETS.md`; the model is a banded grey box figure and
+  is meant to look like one.
 
 ## Tuning reference
 
@@ -213,3 +257,15 @@ common/src/test/java/dev/riftal/creator/features/colossus/    JUnit
 | Ring | arena radius down to 6 blocks at 0.35 blocks/s, 3 fire damage every 20 ticks |
 | Global attack cooldown | 40 ticks |
 | Death | 70 ticks, then loot + 800 XP |
+
+## Tests
+
+| Kind | Where | What it covers |
+|---|---|---|
+| JUnit | `common/src/test/java/dev/riftal/creator/features/colossus/` | `BossPhaseTest` (thresholds, bar colours, no backwards phases), `AttackKindTest` (durations, hit ticks, cooldowns, the invulnerable and choosable sets, NBT name fallback), `AttackSelectorTest` (phase gating, the minion cap, the summon schedule beating the weighted roll), `ShockwaveTest` (band maths, one hit per victim), `ArenaRingTest` (closing speed, the 6-block floor, inside/outside), `ArenaTest` (radius clamping, name normalisation, NBT), `ColossusAssetsTest` (every triggered clip exists, every animated bone exists in the geo, clip lengths match `AttackKind`, UVs stay on the sheet, `sounds.json` resolves to real `.ogg` files, the effect locators survive) |
+| GameTest | `common/src/gametest/java/dev/riftal/creator/features/colossus/gametest/ColossusGameTests.java` | 23 bodies: feature enabled; spawn at full health in phase 1; phase thresholds from health and never running backwards on a heal; enrage applied entering phase 3 and removed leaving it; the boss bar tracking seen players; the slam damaging and launching, hitting each victim once and sparing the boss' own minions; summon bringing three minions and stopping at the cap; minions crumbling on the boss' death; the ring burning only what is outside; stagger interrupting the current attack and doubling incoming damage; the roar being invulnerable while `/colossus kill` is not; kill dropping loot and XP after the collapse; the NBT round trip keeping arena and phase; the chooser driving a real attack end to end; commands resolving the nearest boss; a creative camera being left alone by the whole fight; rebinding the arena restarting the ring; death extinguishing the fire patches |
+| Loader stubs | `fabric/src/gametest/java/.../ColossusFabricGameTests.java`, `neoforge/src/gametest/java/.../ColossusNeoForgeGameTests.java` | The 15 fight tests run in this feature's own `data/creator_colossus/structure/arena_24.nbt` (24×12×24), because the shared 9×9×9 `empty.nbt` is smaller than the boss' 7-block shockwave; the eight that only read state use `empty`. |
+
+Assets: see [`ASSETS.md`](../../common/src/main/java/dev/riftal/creator/features/colossus/ASSETS.md)
+— every texture, sound and GeckoLib file in this feature is a procedural or hand-authored
+placeholder.

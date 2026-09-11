@@ -22,7 +22,8 @@ import java.util.List;
  * unequip anyone mid-fight. The sword is never where the creator left it, which is the joke.
  *
  * <p>Like {@code item_roulette} the next shuffle is an absolute game time in the saved data, so the
- * clock keeps running across a restart.
+ * clock keeps running across a restart, and {@code /rule inventory_shuffle fire} shuffles everyone
+ * on the spot rather than waiting out the thirty seconds.
  */
 public final class InventoryShuffleRule implements Rule {
 
@@ -62,7 +63,18 @@ public final class InventoryShuffleRule implements Rule {
         if (now < nextShuffleTick) {
             return;
         }
-        nextShuffleTick = now + INTERVAL_TICKS;
+        shuffleEveryone(ctx);
+    }
+
+    @Override
+    public boolean fire(RuleContext ctx) {
+        shuffleEveryone(ctx);
+        return true;
+    }
+
+    /** One shuffle for every eligible player, and the clock restarted from now. */
+    private void shuffleEveryone(RuleContext ctx) {
+        nextShuffleTick = ctx.gameTime() + INTERVAL_TICKS;
         for (ServerPlayer player : ctx.players()) {
             if (player.isSpectator() || !player.isAlive()) {
                 continue;

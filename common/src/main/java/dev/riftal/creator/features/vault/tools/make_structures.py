@@ -19,11 +19,22 @@ gzip-compressed, named root tag with an empty name (NbtIo.readCompressed).
 
 Geometry convention, which is what makes the jigsaws line up:
   * every corridor piece is a 5-wide, 5-tall shell with a 3x3 interior;
-  * a doorway is the jigsaw block at (cx, 1, edge) plus plain air at (cx, 2, edge),
-    so a connected pair of jigsaws leaves a 1x2 hole a player can walk through;
+  * a doorway is the jigsaw block at (cx, 1, edge) plus plain air at (cx, 2, edge)
+    AND (cx, 3, edge), so a connected pair of jigsaws leaves a 1-wide, 3-tall hole.
+    Three tall, not two: the Vault Keeper is 2.3 blocks tall (VaultFeature sizes it
+    0.8 x 2.3), so a 1x2 doorway physically cannot pass it and the mini-boss could
+    never leave the treasure room or walk back into it;
   * the jigsaw sits on the outermost block layer of the piece, so a child piece's
     bounding box starts exactly one block beyond the parent's and never overlaps
     (JigsawPlacement places the child so its jigsaw lands at parentPos + front).
+
+Jigsaw priorities (both verified in the 1.21.1 sources):
+  * `selection_priority` orders the jigsaws WITHIN a parent piece -
+    SinglePoolElement.sortBySelectionPriority sorts descending, so the entrance's
+    treasure anchor (10) claims its space before the three corridor exits (0);
+  * `placement_priority` only orders the queue of already-placed children waiting
+    to expand (JigsawPlacement.Placer, SequencedPriorityIterator), so it is NOT the
+    lever for "resolve the treasure room first" and is left at 0.
 """
 
 import gzip
@@ -108,6 +119,39 @@ MAGMA = ("minecraft:magma_block", None)
 CANDLE = ("minecraft:soul_fire", None)
 
 
+def ladder(facing):
+    """A ladder whose support block is the one at pos.relative(facing.getOpposite()).
+
+    LadderBlock.canSurvive (LadderBlock.java:63-66) attaches to
+    `pos.relative(direction.getOpposite())`, so facing="south" needs a solid block
+    one step NORTH of the ladder.
+    """
+    return ("minecraft:ladder", {"facing": facing, "waterlogged": "false"})
+
+
+def dispenser(facing):
+    return ("minecraft:dispenser", {"facing": facing, "triggered": "false"})
+
+
+def tripwire_hook(facing):
+    """TripWireHookBlock.FACING points away from the wall it is attached to
+    (TripWireHookBlock.java:72-77), and a powered hook strongly powers that wall
+    block, which in turn powers whatever sits against it."""
+    return ("minecraft:tripwire_hook", {"facing": facing, "attached": "true", "powered": "false"})
+
+
+def tripwire(east_west=True):
+    props = {"attached": "true", "disarmed": "false", "powered": "false",
+             "north": "false", "south": "false", "east": "false", "west": "false"}
+    if east_west:
+        props["east"] = "true"
+        props["west"] = "true"
+    else:
+        props["north"] = "true"
+        props["south"] = "true"
+    return ("minecraft:tripwire", props)
+
+
 def bars(**sides):
     props = {"east": "false", "north": "false", "south": "false", "west": "false",
              "waterlogged": "false"}
@@ -131,7 +175,7 @@ def jigsaw(orientation):
     return ("minecraft:jigsaw", {"orientation": orientation})
 
 
-def jigsaw_nbt(name, target, pool, final_state="minecraft:air"):
+def jigsaw_nbt(name, target, pool, final_state="minecraft:air", selection_priority=0):
     return {
         "id": ("string", "minecraft:jigsaw"),
         "name": ("string", name),
@@ -140,7 +184,7 @@ def jigsaw_nbt(name, target, pool, final_state="minecraft:air"):
         "final_state": ("string", final_state),
         "joint": ("string", "aligned"),
         "placement_priority": ("int", 0),
-        "selection_priority": ("int", 0),
+        "selection_priority": ("int", selection_priority),
     }
 
 
@@ -149,6 +193,24 @@ def chest_nbt(loot_table):
         "id": ("string", "minecraft:chest"),
         "LootTable": ("string", loot_table),
         "LootTableSeed": ("long", 0),
+    }
+
+
+def dispenser_nbt(item, count):
+    """Dispenser loaded with `count` of `item`.
+
+    1.21.1 item shape, read off ItemStack.CODEC (ItemStack.java:103-114): the keys
+    are `id` and an INT `count` - the pre-1.20.5 byte `Count` is gone. `Slot` is a
+    byte, per ContainerHelper.saveAllItems (ContainerHelper.java:35).
+    """
+    stack = {
+        "Slot": ("byte", 0),
+        "id": ("string", item),
+        "count": ("int", count),
+    }
+    return {
+        "id": ("string", "minecraft:dispenser"),
+        "Items": ("list", ("compound", [stack])),
     }
 
 
@@ -189,16 +251,23 @@ class Piece:
             raise IndexError("%s: (%d,%d,%d) outside %s" % (self.name, x, y, z, self.size))
         self.blocks[(x, y, z)] = (block, nbt)
 
-    def shell(self, wall, floor, ceiling):
-        """Fills the whole box: solid outer shell, air inside, with a little decay."""
+    def shell(self, wall, floor, ceiling, y0=0, y1=None):
+        """Fills a y-slab of the box: solid outer shell, air inside, a little decay.
+
+        Defaults to the whole piece; the entrance passes an explicit range so the
+        ladder shaft can be built on top of the hall rather than turning the whole
+        11x24x11 box into one cathedral.
+        """
         w, h, l = self.size
+        if y1 is None:
+            y1 = h - 1
         for x in range(w):
-            for y in range(h):
+            for y in range(y0, y1 + 1):
                 for z in range(l):
                     edge = x in (0, w - 1) or z in (0, l - 1)
-                    if y == 0:
+                    if y == y0:
                         block = floor
-                    elif y == h - 1:
+                    elif y == y1:
                         block = ceiling
                     elif edge:
                         block = wall
@@ -210,11 +279,16 @@ class Piece:
                         block = COBBLED
                     self.blocks[(x, y, z)] = (block, None)
 
-    def doorway(self, x, y, z, facing, name, target, pool):
-        """A jigsaw at (x,y,z) plus the air block above it - a 1x2 walkable hole."""
+    def doorway(self, x, y, z, facing, name, target, pool, selection_priority=0):
+        """A jigsaw at (x,y,z) plus two air blocks above it - a 1x3 walkable hole.
+
+        Three tall so the 2.3-block Vault Keeper fits through; see the module
+        docstring.
+        """
         self.set(x, y, z, jigsaw(ORIENT[facing]),
-                 jigsaw_nbt(name, target, pool))
+                 jigsaw_nbt(name, target, pool, selection_priority=selection_priority))
         self.set(x, y + 1, z, AIR)
+        self.set(x, y + 2, z, AIR)
 
     def corridor_out(self, x, y, z, facing):
         self.doorway(x, y, z, facing, VAULT_OUT, VAULT_IN, POOL_CORRIDORS)
@@ -255,25 +329,75 @@ class Piece:
 
 # ------------------------------------------------------------------- the pieces
 
+# Ladder shaft geometry, shared by the builder and the sanity check below.
+SHAFT_X0, SHAFT_X1 = 0, 4          # outer box, inclusive
+SHAFT_Z0, SHAFT_Z1 = 0, 4
+SHAFT_LADDER_X, SHAFT_LADDER_Z = 2, 1
+HALL_TOP_Y = 9                     # the hall's ceiling layer
+SHAFT_CAP_Y = 23                   # the plug just under the surface
+
+
 def build_entrance():
-    p = Piece("entrance", 11, 10, 11, seed=1)
-    p.shell(BRICK, TILE, BRICK)
+    """The entry hall with the ladder shaft rising out of its corner.
+
+    Plan section 5 specifies `entrance` as 11x24x11, "shaft with ladder + entry hall
+    at the bottom", and beat 1 of the clip is digging down into it. The shaft is
+    capped at the top rather than opened to daylight: `terrain_adaptation: bury` and
+    `start_height {absolute: -30}` put the cap around y=-7, which is what the plan's
+    manual-QA line ("confirm the ladder top is capped and no exposed opening") asks
+    for. The creator digs down to the cap; `/vault tp` is the shortcut.
+    """
+    p = Piece("entrance", 11, 24, 11, seed=1)
+    p.shell(BRICK, TILE, BRICK, y0=0, y1=HALL_TOP_Y)
+
     # Four pillars holding the hall up.
     for px, pz in ((3, 3), (7, 3), (3, 7), (7, 7)):
         for y in range(1, 8):
             p.set(px, y, pz, POLISHED)
         p.set(px, 8, pz, CHISELED)
-    # Light.
-    for lx, lz in ((2, 2), (8, 2), (2, 8), (8, 8)):
+    # Light. Nothing hangs under the shaft mouth, which is open sky as far as the
+    # hall ceiling is concerned.
+    for lx, lz in ((8, 2), (2, 8), (8, 8)):
         p.set(lx, 8, lz, LANTERN)
     for y in (6, 7):
         p.set(5, y, 5, CHAIN)
     p.set(5, 8, 5, LANTERN)
-    # Three corridor exits and the single treasure anchor.
+
+    # The shaft: a 5x5 brick box with a 3x3 throat, from the hall ceiling up.
+    for y in range(HALL_TOP_Y, SHAFT_CAP_Y + 1):
+        for x in range(SHAFT_X0, SHAFT_X1 + 1):
+            for z in range(SHAFT_Z0, SHAFT_Z1 + 1):
+                inside = SHAFT_X0 < x < SHAFT_X1 and SHAFT_Z0 < z < SHAFT_Z1
+                if y == SHAFT_CAP_Y:
+                    p.set(x, y, z, BRICK)          # the plug
+                elif y == HALL_TOP_Y:
+                    # Punch the hall ceiling open under the throat; leave the rest
+                    # of that layer as the ceiling shell() already laid.
+                    if inside:
+                        p.set(x, y, z, AIR)
+                elif inside:
+                    p.set(x, y, z, AIR)
+                else:
+                    p.set(x, y, z, BRICK)
+
+    # One ladder from the hall floor to just under the cap. Its support is the wall
+    # one block NORTH of it at every height: the hall's north wall below the
+    # ceiling, the ceiling layer itself, then the shaft's own north wall.
+    for y in range(1, SHAFT_CAP_Y):
+        p.set(SHAFT_LADDER_X, y, SHAFT_LADDER_Z, ladder("south"))
+    # A lantern part-way up so the shaft is not a black hole on camera. LANTERN is
+    # hanging=true, so it needs a block directly ABOVE it - hence the brick corbel.
+    p.set(3, 17, 3, BRICK)
+    p.set(3, 16, 3, LANTERN)
+
+    # Three corridor exits and the single treasure anchor. The anchor gets a high
+    # selection_priority so the 13x13 treasure room claims its space before the
+    # corridor branches can take it - see the module docstring.
     p.corridor_out(5, 1, 0, "north")
     p.corridor_out(10, 1, 5, "east")
     p.corridor_out(0, 1, 5, "west")
-    p.doorway(5, 1, 10, "south", TREASURE_ANCHOR, TREASURE_IN, POOL_TREASURE)
+    p.doorway(5, 1, 10, "south", TREASURE_ANCHOR, TREASURE_IN, POOL_TREASURE,
+              selection_priority=10)
     return p
 
 
@@ -320,24 +444,79 @@ def build_corridor_end():
     return p
 
 
+# The two tripwire lines across the trap room, at these z rows.
+TRAP_WIRE_ROWS = (3, 7)
+
+# Arrows per dispenser. One stack-ish: enough for several takes before a reload.
+TRAP_ARROWS = 16
+
+
 def build_trap_room():
+    """The trap room: two tripwire lines, four arrow dispensers, one reward chest.
+
+    Plan beat 2 is "a trap room where the floor drops arrows (dispensers via
+    structure NBT)" and section 6 spells it out as "dispensers loaded with arrows
+    behind tripwire". The wiring is the plainest arrangement vanilla has, so it
+    works with no redstone dust to get wrong:
+
+        hook at (1, 1, z) facing east   -> attached to the wall block (0, 1, z)
+        dispenser at (0, 2, z)          -> sits directly on that wall block
+
+    A tripped hook STRONGLY powers the block it is attached to
+    (TripWireHookBlock.getDirectSignal, TripWireHookBlock.java:262-268); a solid
+    strongly-powered block then reads as powered to every neighbour, which is what
+    DispenserBlock.neighborChanged tests. Walking the line fires all four.
+    """
     p = Piece("trap_room", 11, 6, 11, seed=6)
     p.shell(BRICK, TILE, BRICK)
-    # A magma pit under a lid of cobweb: slow, visible and entirely vanilla.
-    for x in range(3, 8):
-        for z in range(3, 8):
-            p.set(x, 0, z, MAGMA)
-            if (x + z) % 2 == 0 and (x, z) != (5, 5):
-                p.set(x, 1, z, COBWEB)
+
+    for z in TRAP_WIRE_ROWS:
+        # Hooks face into the room; their support is the shell wall behind them.
+        p.set(1, 1, z, tripwire_hook("east"))
+        p.set(9, 1, z, tripwire_hook("west"))
+        for x in range(2, 9):
+            p.set(x, 1, z, tripwire(east_west=True))
+        # Dispensers replace a wall block each, one block above the hook's anchor,
+        # firing across the room at ankle height.
+        p.set(0, 2, z, dispenser("east"), dispenser_nbt("minecraft:arrow", TRAP_ARROWS))
+        p.set(10, 2, z, dispenser("west"), dispenser_nbt("minecraft:arrow", TRAP_ARROWS))
+
+    # A little dressing that is NOT the trap: a cobweb snag either side of the
+    # centre and a scorched floor, so the room still reads as dangerous on camera.
+    for x in (2, 8):
+        p.set(x, 1, 5, COBWEB)
+    for x in range(4, 7):
+        p.set(x, 0, 5, MAGMA)
+
     p.set(5, 0, 5, POLISHED)
     p.set(5, 1, 5, chest("north"), chest_nbt("%s:chests/cursed_vault_trap" % NS))
     for lx, lz in ((2, 2), (8, 2), (2, 8), (8, 8)):
         p.set(lx, 4, lz, LANTERN)
     for x in (1, 9):
-        for z in range(3, 8):
-            p.set(x, 2, z, bars(north=True, south=True))
+        for z in (4, 6):
+            p.set(x, 3, z, bars(north=True, south=True))
     p.corridor_in(5, 1, 0, "north")
     p.corridor_out(5, 1, 10, "south")
+    return p
+
+
+def build_treasure_end():
+    """The cap for the treasure anchor when the treasure room does not fit.
+
+    `cursed_vault/treasure`'s fallback used to be `minecraft:empty`, so a treasure
+    room that intersected a corridor branch left the entrance's south doorway open
+    into raw stone AND the vault with no Cursed Altar at all. It cannot fall back to
+    `cursed_vault/corridor_ends`: a child only attaches if it owns a jigsaw whose
+    NAME equals the parent's TARGET, and corridor_end's jigsaw is named
+    `creator_vault:vault_in`, not `creator_vault:treasure_in`. Hence this piece -
+    identical in spirit to corridor_end, but wearing the treasure connector.
+    """
+    p = Piece("treasure_end", 5, 5, 3, seed=8)
+    p.shell(BRICK, TILE, BRICK)
+    p.set(2, 3, 1, LANTERN)
+    p.set(1, 1, 1, COBWEB)
+    p.set(3, 1, 1, COBWEB)
+    p.doorway(2, 1, 0, "north", TREASURE_IN, TREASURE_ANCHOR, POOL_EMPTY)
     return p
 
 
@@ -378,6 +557,7 @@ BUILDERS = [
     build_corridor_end,
     build_trap_room,
     build_treasure_room,
+    build_treasure_end,
 ]
 
 

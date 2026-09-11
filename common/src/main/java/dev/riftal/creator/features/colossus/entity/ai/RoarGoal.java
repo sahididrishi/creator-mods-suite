@@ -3,6 +3,7 @@ package dev.riftal.creator.features.colossus.entity.ai;
 import dev.riftal.creator.core.util.Fx;
 import dev.riftal.creator.core.util.Selection;
 import dev.riftal.creator.features.colossus.AttackKind;
+import dev.riftal.creator.features.colossus.Combatants;
 import dev.riftal.creator.features.colossus.entity.AshenColossusEntity;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
@@ -26,7 +27,9 @@ public class RoarGoal extends AnimatedAttackGoal {
     protected void onHit(ServerLevel level, int index) {
         Vec3 centre = this.boss.position();
         for (LivingEntity victim : Selection.livingAround(level, centre, PUSH_RADIUS, this.boss)) {
-            if (this.boss.isOwnMinion(victim)) {
+            // knockback() has no gamemode guard of its own, so a spectator or creative camera
+            // would be shoved across the arena by every phase roar.
+            if (this.boss.isOwnMinion(victim) || Combatants.isCamera(victim)) {
                 continue;
             }
             victim.knockback(PUSH_STRENGTH, centre.x - victim.getX(), centre.z - victim.getZ());

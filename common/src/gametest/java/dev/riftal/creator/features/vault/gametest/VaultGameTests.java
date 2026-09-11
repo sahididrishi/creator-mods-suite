@@ -6,6 +6,7 @@ import dev.riftal.creator.features.vault.block.AltarState;
 import dev.riftal.creator.features.vault.block.CursedAltarBlock;
 import dev.riftal.creator.features.vault.block.SealedChestBlock;
 import dev.riftal.creator.features.vault.block.entity.CursedAltarBlockEntity;
+import dev.riftal.creator.features.vault.block.entity.SealedChestBlockEntity;
 import dev.riftal.creator.features.vault.command.VaultCommands;
 import dev.riftal.creator.features.vault.entity.VaultKeeper;
 import net.minecraft.commands.CommandSourceStack;
@@ -19,6 +20,7 @@ import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
@@ -375,6 +377,241 @@ public final class VaultGameTests {
         helper.assertBlockPresent(VaultFeature.SEALED_CHEST.get(), CHEST);
         helper.assertBlockProperty(CHEST, SealedChestBlock.FACING, Direction.NORTH);
         helper.assertBlockProperty(ALTAR, CursedAltarBlock.STATE, AltarState.SEALED);
+        helper.killAllEntities();
+        helper.succeed();
+    }
+
+    /**
+     * The anti-kiting tether has to work <em>while the Keeper has a target</em> - that is the only
+     * situation it exists for.
+     *
+     * <p>It used to live in {@code KeeperGuardAltarGoal}, which bails out the moment
+     * {@code getTarget() != null}, so a player backing up the corridor - a target for the whole
+     * retreat - was never pulled on. It is in {@code VaultKeeper#customServerAiStep} now, which
+     * runs every tick whatever the Keeper is doing.
+     *
+     * <p><b>Why this one force-loads a chunk.</b> {@code VaultKeeper.TETHER_RADIUS} is wider than
+     * any GameTest arena, so a Keeper kited past it necessarily lands outside the chunks
+     * {@code StructureUtils} force-loaded for this structure. Nothing holds a ticket out there, so
+     * the chunk never reaches {@code FullChunkStatus.ENTITY_TICKING}, and an entity in a chunk that
+     * is not entity-ticking is never ticked at all: {@code customServerAiStep} would not run once
+     * in the whole timeout and the Keeper would sit exactly where the teleport dropped it - a
+     * failure that says nothing about the tether. {@code ServerLevel#setChunkForced} loads the
+     * destination and adds a {@code TicketType.FORCED} ticket at
+     * {@code ChunkMap.FORCED_TICKET_LEVEL}, which is
+     * {@code ChunkLevel.byStatus(FullChunkStatus.ENTITY_TICKING)} - exactly the level the Keeper
+     * needs to be ticked.
+     *
+     * <p>The chunk is deliberately never unforced here: {@code GameTestRunner} clears every forced
+     * chunk in the level when the batch finishes, and unforcing it by hand could pull the ground
+     * out from under a neighbouring arena that happens to share it.
+     */
+    public static void keeperIsTetheredEvenWhileChasingSomething(GameTestHelper helper) {
+        buildRoom(helper);
+        ServerLevel level = helper.getLevel();
+        BlockPos altar = helper.absolutePos(ALTAR);
+
+        VaultKeeper keeper = VaultFeature.VAULT_KEEPER.get()
+                .spawn(level, helper.absolutePos(new BlockPos(2, 1, 2)), MobSpawnType.COMMAND);
+        if (keeper == null) {
+            helper.fail("could not spawn a Vault Keeper");
+            return;
+        }
+        keeper.bindToAltar(altar);
+        keeper.setPersistenceRequired();
+
+        // Give it a target, exactly as a kiting player would, then drop it well past the tether.
+        Player chased = helper.makeMockPlayer(GameType.SURVIVAL);
+        keeper.setTarget(chased);
+        double beyond = VaultKeeper.TETHER_RADIUS + 30.0D;
+        double kitedX = altar.getX() + 0.5D;
+        double kitedY = altar.getY() + 1.0D;
+        double kitedZ = altar.getZ() + 0.5D + beyond;
+        // See the javadoc: out there the Keeper is only ticked if something keeps the chunk loaded.
+        ChunkPos kitedChunk = new ChunkPos(BlockPos.containing(kitedX, kitedY, kitedZ));
+        level.setChunkForced(kitedChunk.x, kitedChunk.z, true);
+        keeper.teleportTo(kitedX, kitedY, kitedZ);
+        helper.assertTrue(keeper.getTarget() != null,
+                "the test only means anything while the Keeper has a target");
+
+        // Baseline so the failure message can tell "the tether never fired" from "the Keeper was
+        // never ticked", which look identical from the outside.
+        int ticksWhenKited = keeper.tickCount;
+
+        helper.succeedWhen(() -> {
+            double distance = Math.sqrt(keeper.distanceToSqr(
+                    altar.getX() + 0.5D, altar.getY() + 0.5D, altar.getZ() + 0.5D));
+            helper.assertTrue(distance <= VaultKeeper.TETHER_RADIUS,
+                    "the Keeper was still " + Math.round(distance) + " blocks from its altar after "
+                            + (keeper.tickCount - ticksWhenKited) + " ticks of its own; the tether "
+                            + "must fire while it has a target or it can be kited away");
+            keeper.discard();
+        });
+    }
+
+    /**
+     * A Keeper that is not the one this altar is waiting on must not open the chest when it dies.
+     *
+     * <p>Any leftover Keeper still carries its {@code altarPos}, so before the UUID check a stray
+     * {@code /kill @e[type=creator_vault:vault_keeper]}, a lava death or a Keeper adopted away
+     * cracked the chest open mid-fight while the real Keeper stood at full health.
+     */
+    public static void aStrayKeeperCannotUnsealTheChest(GameTestHelper helper) {
+        buildRoom(helper);
+        ServerLevel level = helper.getLevel();
+        CursedAltarBlockEntity altar = altarAt(helper);
+        helper.assertTrue(altar.activate(null), "a sealed altar must accept a key");
+
+        helper.runAtTickTime(SUMMON_DEADLINE, () -> {
+            VaultKeeper bound = altar.resolveKeeper(level);
+            if (bound == null) {
+                helper.fail("no Vault Keeper was summoned within " + SUMMON_DEADLINE + " ticks");
+                return;
+            }
+            // A second Keeper that thinks it belongs to this altar - the shape every orphan takes.
+            VaultKeeper stray = VaultFeature.VAULT_KEEPER.get()
+                    .spawn(level, helper.absolutePos(new BlockPos(1, 1, 1)), MobSpawnType.COMMAND);
+            if (stray == null) {
+                helper.fail("could not spawn the stray Vault Keeper");
+                return;
+            }
+            stray.bindToAltar(helper.absolutePos(ALTAR));
+            stray.kill();
+
+            helper.runAfterDelay(10L, () -> {
+                helper.assertBlockPresent(VaultFeature.SEALED_CHEST.get(), CHEST);
+                helper.assertBlockProperty(ALTAR, CursedAltarBlock.STATE, AltarState.ACTIVE);
+                helper.assertTrue(bound.isAlive(), "the bound Keeper should be untouched");
+                helper.killAllEntities();
+                helper.succeed();
+            });
+        });
+    }
+
+    /**
+     * Handing an altar a second Keeper gets rid of the first one.
+     *
+     * <p>{@code /vault spawn_keeper} on an already-active altar used to overwrite {@code keeperId}
+     * and leave Keeper #1 alive with its own boss bar, its persistence flag and its binding -
+     * unreachable by {@code /vault reset}, which only ever discarded the bound one.
+     */
+    public static void adoptingASecondKeeperRetiresTheFirst(GameTestHelper helper) {
+        buildRoom(helper);
+        ServerLevel level = helper.getLevel();
+        CursedAltarBlockEntity altar = altarAt(helper);
+
+        VaultKeeper first = VaultFeature.VAULT_KEEPER.get()
+                .spawn(level, helper.absolutePos(new BlockPos(2, 1, 2)), MobSpawnType.COMMAND);
+        VaultKeeper second = VaultFeature.VAULT_KEEPER.get()
+                .spawn(level, helper.absolutePos(new BlockPos(6, 1, 2)), MobSpawnType.COMMAND);
+        if (first == null || second == null) {
+            helper.fail("could not spawn both Vault Keepers");
+            return;
+        }
+        helper.assertTrue(altar.adoptKeeper(level, first), "the altar must adopt the first Keeper");
+        helper.assertTrue(altar.adoptKeeper(level, second), "the altar must adopt the second too");
+
+        helper.assertTrue(first.isRemoved(),
+                "the first Keeper must be discarded, not orphaned with its boss bar still up");
+        helper.assertTrue(second.getUUID().equals(altar.keeperId()),
+                "the altar must be bound to the Keeper it just adopted");
+        helper.assertTrue(second.isAlive(), "the second Keeper must survive the swap");
+        helper.killAllEntities();
+        helper.succeed();
+    }
+
+    /**
+     * {@code /vault reset} must clear a Keeper that is bound to the altar even when the altar has
+     * forgotten it - the shape a reset run while the Keeper's chunk was out used to leave behind.
+     */
+    public static void resetSweepsAKeeperTheAltarHasForgotten(GameTestHelper helper) {
+        buildRoom(helper);
+        ServerLevel level = helper.getLevel();
+        CursedAltarBlockEntity altar = altarAt(helper);
+
+        VaultKeeper orphan = VaultFeature.VAULT_KEEPER.get()
+                .spawn(level, helper.absolutePos(new BlockPos(2, 1, 2)), MobSpawnType.COMMAND);
+        if (orphan == null) {
+            helper.fail("could not spawn a Vault Keeper");
+            return;
+        }
+        // Bound to the altar, but the altar knows nothing about it: keeperId is still null.
+        orphan.bindToAltar(helper.absolutePos(ALTAR));
+        orphan.setPersistenceRequired();
+        helper.assertTrue(altar.keeperId() == null, "the altar should not know this Keeper");
+
+        altar.reset(level);
+
+        helper.assertTrue(orphan.isRemoved(),
+                "reset must sweep every Keeper still pointing at this altar, not only the bound one");
+        helper.killAllEntities();
+        helper.succeed();
+    }
+
+    /**
+     * The documented recovery path for an altar mined by accident: {@code /vault unseal} still
+     * opens the chests it left behind.
+     *
+     * <p>A Sealed Chest is unbreakable, unopenable, unpushable and is not a container, so without
+     * this the chests are bricked permanently - and mining an altar in creative while dressing a
+     * set is very easy to do.
+     */
+    public static void unsealWithoutAnAltarStillOpensTheChests(GameTestHelper helper) {
+        // Deliberately no altar in this arena.
+        helper.setBlock(CHEST, VaultFeature.SEALED_CHEST.get().defaultBlockState()
+                .setValue(SealedChestBlock.FACING, Direction.NORTH));
+        ServerLevel level = helper.getLevel();
+
+        int opened = SealedChestBlock.unsealAround(level, helper.absolutePos(CHEST), 4, 0L);
+        helper.assertTrue(opened >= 1, "expected the orphaned chest to open, opened " + opened);
+        helper.assertBlockPresent(Blocks.CHEST, CHEST);
+
+        ChestBlockEntity chest = helper.getBlockEntity(CHEST);
+        if (chest == null) {
+            helper.fail("unsealing did not leave a ChestBlockEntity", CHEST);
+            return;
+        }
+        helper.assertTrue(VaultFeature.CHEST_LOOT_TABLE.equals(chest.getLootTable()),
+                "an orphaned chest must still carry the vault loot table");
+        helper.succeed();
+    }
+
+    /**
+     * A Sealed Chest dressed with its own loot table in the structure NBT keeps that table across
+     * {@code /vault reset} - i.e. between takes, which is the only time reset ever runs.
+     */
+    public static void resetKeepsAPerChestLootTableOverride(GameTestHelper helper) {
+        buildRoom(helper);
+        ServerLevel level = helper.getLevel();
+        CursedAltarBlockEntity altar = altarAt(helper);
+
+        SealedChestBlockEntity sealed = helper.getBlockEntity(CHEST);
+        if (sealed == null) {
+            helper.fail("no SealedChestBlockEntity was created", CHEST);
+            return;
+        }
+        sealed.setLootTable(VaultFeature.TRAP_LOOT_TABLE);
+
+        helper.assertTrue(altar.activate(null), "a sealed altar must accept a key");
+        altar.onKeeperDead(level);
+        ChestBlockEntity opened = helper.getBlockEntity(CHEST);
+        if (opened == null) {
+            helper.fail("unsealing did not leave a ChestBlockEntity", CHEST);
+            return;
+        }
+        helper.assertTrue(VaultFeature.TRAP_LOOT_TABLE.equals(opened.getLootTable()),
+                "unsealing must honour the per-chest table, got " + opened.getLootTable());
+
+        altar.reset(level);
+        helper.assertBlockPresent(VaultFeature.SEALED_CHEST.get(), CHEST);
+        SealedChestBlockEntity resealed = helper.getBlockEntity(CHEST);
+        if (resealed == null) {
+            helper.fail("re-sealing did not leave a SealedChestBlockEntity", CHEST);
+            return;
+        }
+        helper.assertTrue(VaultFeature.TRAP_LOOT_TABLE.equals(resealed.lootTable()),
+                "the re-sealed chest reverted to " + resealed.lootTable()
+                        + " - a custom-loot chest must survive a reset");
         helper.killAllEntities();
         helper.succeed();
     }

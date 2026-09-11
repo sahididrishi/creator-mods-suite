@@ -56,7 +56,7 @@ public final class ShieldDomeAbility implements Ability {
         Fx.sound(level, player.position(), SoundEvents.BEACON_ACTIVATE, SoundSource.PLAYERS, 0.9F, 1.4F);
     }
 
-    /** Dome duration in ticks. Read by the commands and the GameTests. */
+    /** Dome duration in ticks. Read by the GameTests, so they never hard-code the timer. */
     public static int durationTicks() {
         return DURATION_TICKS;
     }

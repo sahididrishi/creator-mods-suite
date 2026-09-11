@@ -37,6 +37,18 @@ public final class Shockwave {
     /** Ticks the ring takes to reach {@code maxRadius}. */
     public static final int EXPANSION_TICKS = 8;
 
+    /**
+     * Points drawn around the ring each tick. Deliberately modest: the ring is redrawn on every one
+     * of the {@link #EXPANSION_TICKS}, so this number is multiplied by eight for one slam.
+     */
+    public static final int RING_POINTS = 16;
+
+    /**
+     * Every n-th ring point carries the heavier effects (smoke, and on the impact tick the vanilla
+     * block-break crack).
+     */
+    private static final int ACCENT_EVERY = 4;
+
     /** Radius of the leading edge, {@code tick} ticks into an {@code ticks}-tick expansion. */
     public static double radiusAt(int tick, int ticks, double maxRadius) {
         if (ticks <= 0) {
@@ -88,15 +100,21 @@ public final class Shockwave {
     /**
      * One tick of the ring: damages and launches everything in the band, then draws it.
      *
-     * @param alreadyHit ids that have been hit by this shockwave already; mutated in place so no
-     *                   entity is hit twice by the same slam
+     * @param tickSinceImpact which tick of the expansion this is, counting from 1. The ring is only
+     *                        <em>cracked open</em> once, on tick 1; later ticks are silent.
+     * @param alreadyHit      ids that have been hit by this shockwave already; mutated in place so
+     *                        no entity is hit twice by the same slam
      */
     public static void apply(ServerLevel level, LivingEntity source, Vec3 centre, double leadingEdge,
-                             float damage, double knockbackStrength, Set<UUID> alreadyHit,
-                             Predicate<LivingEntity> canHit) {
+                             int tickSinceImpact, float damage, double knockbackStrength,
+                             Set<UUID> alreadyHit, Predicate<LivingEntity> canHit) {
         double inner = Math.max(0.0D, leadingEdge - BAND_WIDTH);
+        // The camera filter is applied here rather than left to the caller: a shockwave that
+        // launches the creative-mode camera operator is not a bug any individual caller can be
+        // trusted to remember. See Combatants.
         List<LivingEntity> candidates = Selection.around(level, LivingEntity.class, centre,
-                leadingEdge + 2.0D, e -> e != source && canHit.test(e));
+                leadingEdge + 2.0D,
+                e -> e != source && !Combatants.isCamera(e) && canHit.test(e));
 
         for (LivingEntity victim : victims(candidates, centre, inner, leadingEdge)) {
             if (!alreadyHit.add(victim.getUUID())) {
@@ -108,25 +126,40 @@ public final class Shockwave {
             victim.hurtMarked = true;
         }
 
-        drawRing(level, centre, leadingEdge);
+        drawRing(level, centre, leadingEdge, tickSinceImpact);
     }
 
-    /** Block-crack particles plus the vanilla "block broken" sound every 45 degrees. */
-    public static void drawRing(ServerLevel level, Vec3 centre, double radius) {
+    /**
+     * Block-crack particles along the ring, plus - on the impact tick only - four vanilla
+     * "block broken" events for the crack.
+     *
+     * <p>{@code levelEvent(2001, ...)} is a full-volume block-break sound <em>and</em> a particle
+     * burst. Firing it on every tick of the expansion stacked {@value #EXPANSION_TICKS} x 8
+     * overlapping basalt cracks into 0.4 seconds, which on camera is white noise rather than a
+     * slam, so the audio is spent once, on the tick the fist lands, and the following ticks are the
+     * ring travelling outwards in silence.
+     *
+     * @param tickSinceImpact 1 on the tick of impact, then 2..{@value #EXPANSION_TICKS}
+     */
+    public static void drawRing(ServerLevel level, Vec3 centre, double radius, int tickSinceImpact) {
         BlockPos floorPos = BlockPos.containing(centre.x, centre.y - 0.2D, centre.z);
         BlockState floor = level.getBlockState(floorPos);
         if (floor.isAir()) {
             floor = level.getBlockState(floorPos.below());
         }
         BlockParticleOption crack = new BlockParticleOption(ParticleTypes.BLOCK, floor);
+        boolean impactTick = tickSinceImpact <= 1;
 
-        Vec3[] points = MathUtil.ring(centre, radius, 32);
+        Vec3[] points = MathUtil.ring(centre, radius, RING_POINTS);
         for (int i = 0; i < points.length; i++) {
             Vec3 point = points[i];
-            level.sendParticles(crack, point.x, point.y + 0.2D, point.z, 3, 0.15D, 0.25D, 0.15D, 0.05D);
-            if (i % 4 == 0) {
-                level.sendParticles(ParticleTypes.LARGE_SMOKE, point.x, point.y + 0.3D, point.z,
-                        1, 0.1D, 0.1D, 0.1D, 0.01D);
+            level.sendParticles(crack, point.x, point.y + 0.2D, point.z, 1, 0.15D, 0.25D, 0.15D, 0.05D);
+            if (i % ACCENT_EVERY != 0) {
+                continue;
+            }
+            level.sendParticles(ParticleTypes.LARGE_SMOKE, point.x, point.y + 0.3D, point.z,
+                    1, 0.1D, 0.1D, 0.1D, 0.01D);
+            if (impactTick) {
                 level.levelEvent(2001, BlockPos.containing(point.x, point.y, point.z),
                         Block.getId(floor));
             }

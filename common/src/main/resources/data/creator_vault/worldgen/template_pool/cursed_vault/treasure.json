@@ -1,5 +1,5 @@
 {
-  "fallback": "minecraft:empty",
+  "fallback": "creator_vault:cursed_vault/treasure_ends",
   "elements": [
     {
       "weight": 1,

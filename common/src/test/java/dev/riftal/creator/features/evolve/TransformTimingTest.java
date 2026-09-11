@@ -3,7 +3,6 @@ package dev.riftal.creator.features.evolve;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.riftal.creator.features.evolve.client.ClientEvolutionCache;
@@ -54,7 +53,7 @@ class TransformTimingTest {
     void transformProgressRunsZeroToOneOverTheSequence() {
         long start = 1_000_000L;
         ClientEvolutionCache.Transform transform =
-                new ClientEvolutionCache.Transform(start, 40, 3);
+                new ClientEvolutionCache.Transform(start, 40, 3, 0L);
 
         assertEquals(start + 2_000L, transform.endMillis(), "40 ticks is two seconds");
         assertEquals(0.0F, transform.progress(start), 1.0E-6F);
@@ -68,7 +67,7 @@ class TransformTimingTest {
     void theWhiteFlashOnlyCoversTheEndOfTheSequence() {
         long start = 5_000L;
         ClientEvolutionCache.Transform transform =
-                new ClientEvolutionCache.Transform(start, 60, Stages.MAX);
+                new ClientEvolutionCache.Transform(start, 60, Stages.MAX, 0L);
         long end = transform.endMillis();
 
         assertEquals(0.0F, transform.flash(start), 1.0E-6F, "no flash at the top of the sequence");
@@ -134,12 +133,71 @@ class TransformTimingTest {
     }
 
     @Test
-    void aFinishedSyncDropsTheRunningTransform() {
+    void aFinishedSyncEndsTheSequenceButLetsTheFlashFinish() {
         ClientEvolutionCache.startTransform(PLAYER, 40, 2);
         assertNotNull(ClientEvolutionCache.transform(PLAYER));
+        assertTrue(ClientEvolutionCache.transform(PLAYER).running());
 
         ClientEvolutionCache.put(PLAYER, 2, 120, false, EvolutionData.MODEL_AUTO);
-        assertNull(ClientEvolutionCache.transform(PLAYER),
-                "a sync that says 'not transforming' ends the screen effect");
+
+        ClientEvolutionCache.Transform after = ClientEvolutionCache.transform(PLAYER);
+        assertNotNull(after, "the entry has to outlive the STOP or the flash cuts at peak white");
+        assertFalse(after.running(), "but it must no longer count as a running sequence");
+    }
+
+    /**
+     * The regression the plan's "alpha 0 -&gt; 0.9 -&gt; 0" depends on. The server sends STOP and the
+     * sync at the same instant the flash peaks; if either of them deleted the entry the down ramp
+     * would never render and the screen would cut from alpha 230 to nothing in one frame.
+     */
+    @Test
+    void theFlashSurvivesItsOwnStopPacketAndThenExpires() {
+        long start = 400_000L;
+        ClientEvolutionCache.Transform running =
+                new ClientEvolutionCache.Transform(start, 40, 3, 0L);
+        long end = running.endMillis();
+
+        assertFalse(running.expired(end + ClientEvolutionCache.FLASH_MILLIS * 10),
+                "a running sequence never expires on its own");
+
+        ClientEvolutionCache.Transform stopped = running.ended(end);
+        assertFalse(stopped.running());
+        assertEquals(1.0F, stopped.flash(end), 1.0E-6F, "peak white at the moment of the STOP");
+        assertTrue(stopped.flash(end + ClientEvolutionCache.FLASH_MILLIS / 4) > 0.0F,
+                "and still fading a quarter of a flash-length later");
+        assertFalse(stopped.expired(end + ClientEvolutionCache.FLASH_MILLIS / 4),
+                "so it must still be in the map while it is fading");
+        assertTrue(stopped.expired(end + ClientEvolutionCache.FLASH_MILLIS),
+                "and be gone once there is nothing left to draw");
+        assertEquals(stopped.endedAtMillis(), stopped.ended(end + 5_000L).endedAtMillis(),
+                "ending twice must not push the expiry out");
+    }
+
+    /**
+     * An aborted sequence - {@code /evolve set} on someone mid-transformation - must not flash. The
+     * entry lingers only long enough to be tidied away.
+     */
+    @Test
+    void anAbortedSequenceNeverFlashes() {
+        long start = 900_000L;
+        ClientEvolutionCache.Transform aborted =
+                new ClientEvolutionCache.Transform(start, 60, 5, 0L).ended(start + 100L);
+
+        assertEquals(0.0F, aborted.flash(start + 100L), 1.0E-6F);
+        assertTrue(aborted.expired(start + 100L + ClientEvolutionCache.FLASH_MILLIS),
+                "an abort a long way from the end should not hold the entry for the whole sequence");
+    }
+
+    @Test
+    void aRoarLastsTheLengthOfItsAnimationAndIsPerPlayer() {
+        UUID other = UUID.fromString("11112222-3333-4444-5555-666677778888");
+        assertFalse(ClientEvolutionCache.roaring(PLAYER));
+
+        ClientEvolutionCache.startRoar(PLAYER);
+        assertTrue(ClientEvolutionCache.roaring(PLAYER));
+        assertFalse(ClientEvolutionCache.roaring(other), "a roar belongs to one player");
+
+        ClientEvolutionCache.clear();
+        assertFalse(ClientEvolutionCache.roaring(PLAYER), "and is dropped with the rest of the cache");
     }
 }

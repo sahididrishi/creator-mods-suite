@@ -14,6 +14,8 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
@@ -45,6 +47,17 @@ public final class ActiveEffects {
 
     /** Entity tag put on frozen mobs so a server crash mid-freeze can still be undone on load. */
     public static final String FROZEN_TAG = "creator_powers_frozen";
+
+    /**
+     * The pre-freeze AI flags, written onto the mob itself next to {@link #FROZEN_TAG}.
+     *
+     * <p>{@code NoAI} and {@code NoGravity} are saved to entity NBT, so a mob frozen when the server
+     * died comes back brain-dead with only its tags to say what it used to be. Recording the two
+     * flags as tags is what lets {@link #releaseStrayFrozenMobs} hand back the <em>original</em>
+     * values instead of hard-coding "false" onto a build prop that was deliberately {@code NoAI}.
+     */
+    public static final String HAD_NO_AI_TAG = "creator_powers_had_noai";
+    public static final String HAD_NO_GRAVITY_TAG = "creator_powers_had_nogravity";
 
     /** Dome radius used for the particle shell and the projectile void. */
     public static final double DOME_RADIUS = 4.0D;
@@ -211,17 +224,30 @@ public final class ActiveEffects {
 
     /**
      * Freezes one mob until {@code until}, remembering the AI flags it had. A mob that is already
-     * frozen just has its timer extended.
+     * frozen just has its timer extended - and changes hands, so the newest caster is the one whose
+     * logout thaws it.
+     *
+     * @param owner the player whose Mob Freeze this is
      */
-    public static void freeze(Mob mob, long until) {
+    public static void freeze(Mob mob, long until, UUID owner) {
         FrozenMob existing = FROZEN.get(mob.getUUID());
         if (existing != null) {
-            FROZEN.put(mob.getUUID(),
-                    new FrozenMob(mob, existing.hadNoAi(), existing.hadNoGravity(), Math.max(existing.until(), until)));
+            FROZEN.put(mob.getUUID(), new FrozenMob(mob, existing.hadNoAi(), existing.hadNoGravity(),
+                    Math.max(existing.until(), until), owner));
             return;
         }
-        FROZEN.put(mob.getUUID(), new FrozenMob(mob, mob.isNoAi(), mob.isNoGravity(), until));
+        boolean hadNoAi = mob.isNoAi();
+        boolean hadNoGravity = mob.isNoGravity();
+        FROZEN.put(mob.getUUID(), new FrozenMob(mob, hadNoAi, hadNoGravity, until, owner));
         mob.addTag(FROZEN_TAG);
+        // Written onto the mob as well as into the map: the map does not survive a crash, the tags
+        // do - see HAD_NO_AI_TAG.
+        if (hadNoAi) {
+            mob.addTag(HAD_NO_AI_TAG);
+        }
+        if (hadNoGravity) {
+            mob.addTag(HAD_NO_GRAVITY_TAG);
+        }
         mob.setNoAi(true);
         mob.setNoGravity(true);
         mob.setDeltaMovement(Vec3.ZERO);
@@ -233,7 +259,7 @@ public final class ActiveEffects {
         return FROZEN.containsKey(mobId);
     }
 
-    /** How many mobs are currently frozen. Used by the commands and the GameTests. */
+    /** How many mobs this session is currently holding frozen. Asserted by the GameTests. */
     public static int frozenCount() {
         return FROZEN.size();
     }
@@ -244,6 +270,8 @@ public final class ActiveEffects {
         mob.setNoGravity(frozen.hadNoGravity());
         mob.setTicksFrozen(0);
         mob.removeTag(FROZEN_TAG);
+        mob.removeTag(HAD_NO_AI_TAG);
+        mob.removeTag(HAD_NO_GRAVITY_TAG);
         if (playSound && !mob.isRemoved() && mob.level() instanceof ServerLevel level) {
             Fx.particles(level, ParticleTypes.SNOWFLAKE, mob.position().add(0.0D, mob.getBbHeight() * 0.5D, 0.0D),
                     8, 0.35D, 0.01D);
@@ -262,8 +290,7 @@ public final class ActiveEffects {
         if (source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
             return false;
         }
-        if (dashInvulnerable(id, now)
-                && !source.is(DamageTypeTags.IS_FALL)) {
+        if (dashInvulnerable(id, now) && isMelee(source)) {
             return true;
         }
         if (domeActive(id, now)
@@ -272,6 +299,27 @@ public final class ActiveEffects {
             return true;
         }
         return false;
+    }
+
+    /**
+     * "Melee only", as the plan's dash row spells it: a hit delivered in person by something
+     * standing next to you.
+     *
+     * <p>Stated positively (a living direct attacker) rather than as a blacklist, so the eight
+     * ticks of dash cover can never quietly become better anti-arrow protection than the Shield
+     * Dome. Arrows, explosions, fire, fall, magic, drowning and starvation all land as normal -
+     * the window is there to carry the creator through a mob pile, nothing more.
+     */
+    private static boolean isMelee(DamageSource source) {
+        if (source.is(DamageTypeTags.IS_PROJECTILE)
+                || source.is(DamageTypeTags.IS_EXPLOSION)
+                || source.is(DamageTypeTags.IS_FIRE)
+                || source.is(DamageTypeTags.IS_FALL)
+                || source.is(DamageTypeTags.IS_DROWNING)
+                || source.is(DamageTypeTags.BYPASSES_ARMOR)) {
+            return false;
+        }
+        return source.getDirectEntity() instanceof LivingEntity;
     }
 
     /** Runs once per server tick. Cheap when nothing is active. */
@@ -386,7 +434,18 @@ public final class ActiveEffects {
         while (it.hasNext()) {
             FrozenMob frozen = it.next().getValue();
             Mob mob = frozen.mob();
-            if (mob.isRemoved() || !mob.isAlive()) {
+            Entity.RemovalReason removal = mob.getRemovalReason();
+            if (removal != null) {
+                it.remove();
+                // A mob that died takes its flags with it. A mob that is merely being unloaded is
+                // about to be written to disk, so it has to get its real NoAI/NoGravity back first
+                // or it wakes up brain-dead in a chunk nobody is standing in.
+                if (!removal.shouldDestroy()) {
+                    thaw(frozen, false);
+                }
+                continue;
+            }
+            if (!mob.isAlive()) {
                 it.remove();
                 continue;
             }
@@ -420,30 +479,67 @@ public final class ActiveEffects {
             List<Mob> stray = Selection.around(level, Mob.class, player.position(), 32.0D,
                     mob -> mob.getTags().contains(FROZEN_TAG) && !FROZEN.containsKey(mob.getUUID()));
             for (Mob mob : stray) {
-                mob.removeTag(FROZEN_TAG);
-                mob.setNoAi(false);
-                mob.setNoGravity(false);
+                // The flags the mob had before it was ever frozen, recorded as tags at freeze time.
+                // A build prop that was deliberately NoAI stays NoAI.
+                mob.setNoAi(mob.getTags().contains(HAD_NO_AI_TAG));
+                mob.setNoGravity(mob.getTags().contains(HAD_NO_GRAVITY_TAG));
                 mob.setTicksFrozen(0);
+                mob.removeTag(FROZEN_TAG);
+                mob.removeTag(HAD_NO_AI_TAG);
+                mob.removeTag(HAD_NO_GRAVITY_TAG);
             }
         }
     }
 
-    /** Ends every effect this player owns. Called on logout and on death. */
+    /**
+     * Ends every effect this player owns: the dome comes off with its buffs, an in-flight pound is
+     * abandoned, the i-frame window is dropped and every mob this player froze is thawed.
+     *
+     * <p>Called on logout, on death and on {@code /power clear} - see
+     * {@code PowersPlayerListMixin}, which is what makes the first two happen.
+     */
     public static void clearFor(ServerPlayer player) {
         UUID id = player.getUUID();
         DASH_INVULNERABLE_UNTIL.remove(id);
         POUNDS.remove(id);
         endDome(player, false);
+        thawOwnedBy(id);
     }
 
-    /** Thaws everything and forgets every timer. Called when a world is loaded or unloaded. */
+    /** Thaws every mob frozen by one player, leaving everybody else's freezes alone. */
+    private static void thawOwnedBy(UUID owner) {
+        if (FROZEN.isEmpty()) {
+            return;
+        }
+        Iterator<Map.Entry<UUID, FrozenMob>> it = FROZEN.entrySet().iterator();
+        while (it.hasNext()) {
+            FrozenMob frozen = it.next().getValue();
+            if (owner.equals(frozen.owner())) {
+                it.remove();
+                thaw(frozen, false);
+            }
+        }
+    }
+
+    /**
+     * Thaws everything, drops every dome and forgets every timer. Called when a world stops, and
+     * defensively when one starts.
+     *
+     * <p>Every dome is ended through {@link #endDome} rather than dropped from the map: the +10
+     * armour, the +4 toughness and the max-absorption headroom are transient attribute modifiers on
+     * a live player, and forgetting the dome without removing them leaves the creator buffed for the
+     * rest of the session.
+     */
     public static void reset() {
         for (FrozenMob frozen : new ArrayList<>(FROZEN.values())) {
             thaw(frozen, false);
         }
         FROZEN.clear();
-        DASH_INVULNERABLE_UNTIL.clear();
+        for (DomeState dome : new ArrayList<>(DOMES.values())) {
+            endDome(dome.player(), false);
+        }
         DOMES.clear();
+        DASH_INVULNERABLE_UNTIL.clear();
         POUNDS.clear();
     }
 

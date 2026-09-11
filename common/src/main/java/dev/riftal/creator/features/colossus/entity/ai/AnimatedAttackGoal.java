@@ -27,6 +27,7 @@ public abstract class AnimatedAttackGoal extends Goal {
     protected final AshenColossusEntity boss;
     protected final AttackKind kind;
     protected int attackTicks;
+    private boolean interrupted;
 
     protected AnimatedAttackGoal(AshenColossusEntity boss, AttackKind kind) {
         this.boss = boss;
@@ -59,6 +60,7 @@ public abstract class AnimatedAttackGoal extends Goal {
     @Override
     public void start() {
         this.attackTicks = 0;
+        this.interrupted = false;
         this.boss.getNavigation().stop();
         this.boss.triggerAnim("attack", this.kind.animName());
         ServerLevel level = this.serverLevel();
@@ -84,6 +86,7 @@ public abstract class AnimatedAttackGoal extends Goal {
 
     @Override
     public void stop() {
+        this.interrupted = this.attackTicks < this.kind.durationTicks();
         if (this.boss.getAttack() == this.kind) {
             this.boss.setAttack(AttackKind.NONE);
         }
@@ -98,6 +101,16 @@ public abstract class AnimatedAttackGoal extends Goal {
     /** Ticks elapsed since the clip started. */
     public int attackTicks() {
         return this.attackTicks;
+    }
+
+    /**
+     * True inside {@link #onStop} when the clip was cut short - a stagger, a phase roar, death or
+     * the boss losing its footing - rather than running to the end of its timeline. Anything a goal
+     * left running past its own last tick (a scheduled volley, say) must be torn down when this is
+     * true and left alone when it is false.
+     */
+    protected boolean wasInterrupted() {
+        return this.interrupted;
     }
 
     /** Keeps the boss facing its target - call from {@link #onTick} before the hit tick. */

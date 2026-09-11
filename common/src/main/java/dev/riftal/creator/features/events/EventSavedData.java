@@ -24,10 +24,12 @@ public final class EventSavedData extends SavedData {
     private static final String KEY_VERSION = "version";
     private static final String KEY_ACTIVE = "active";
     private static final String KEY_LAST = "last_event";
+    private static final String KEY_HUD = "hud_visible";
     private static final int VERSION = 1;
 
     private CompoundTag active;
     private String lastEventId = "";
+    private boolean hudVisible = true;
 
     /** Factory for {@code DimensionDataStorage#computeIfAbsent}. */
     public static SavedData.Factory<EventSavedData> factory() {
@@ -40,6 +42,8 @@ public final class EventSavedData extends SavedData {
             data.active = tag.getCompound(KEY_ACTIVE).copy();
         }
         data.lastEventId = tag.getString(KEY_LAST);
+        // Absent in files written before the flag was persisted; an old world keeps its HUD.
+        data.hudVisible = !tag.contains(KEY_HUD) || tag.getBoolean(KEY_HUD);
         return data;
     }
 
@@ -50,6 +54,7 @@ public final class EventSavedData extends SavedData {
             tag.put(KEY_ACTIVE, active.copy());
         }
         tag.putString(KEY_LAST, lastEventId);
+        tag.putBoolean(KEY_HUD, hudVisible);
         return tag;
     }
 
@@ -71,6 +76,19 @@ public final class EventSavedData extends SavedData {
 
     public void setLastEventId(String id) {
         this.lastEventId = id == null ? "" : id;
+        setDirty();
+    }
+
+    /**
+     * Whether the director's HUD line is shown. Persisted so {@code /event hud false} survives the
+     * reload that a thumbnail session usually ends with, instead of quietly coming back on.
+     */
+    public boolean hudVisible() {
+        return hudVisible;
+    }
+
+    public void setHudVisible(boolean visible) {
+        this.hudVisible = visible;
         setDirty();
     }
 }

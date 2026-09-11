@@ -1,6 +1,7 @@
 package dev.riftal.creator.features.colossus.entity;
 
 import dev.riftal.creator.features.colossus.ColossusFeature;
+import dev.riftal.creator.features.colossus.Combatants;
 import dev.riftal.creator.features.colossus.FirePatches;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
@@ -50,6 +51,11 @@ public class AshBombEntity extends ThrowableItemProjectile {
     @Override
     protected boolean canHitEntity(Entity target) {
         if (target instanceof AshenColossusEntity || target instanceof AshenMinionEntity) {
+            return false;
+        }
+        // setRemainingFireTicks in onHitEntity bypasses creative mode, so a bomb must not be
+        // allowed to reach a camera at all.
+        if (Combatants.isCamera(target)) {
             return false;
         }
         return super.canHitEntity(target);

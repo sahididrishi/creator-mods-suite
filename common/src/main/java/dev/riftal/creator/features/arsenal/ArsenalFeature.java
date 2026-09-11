@@ -6,9 +6,9 @@ import dev.riftal.creator.core.client.ClientRenderers;
 import dev.riftal.creator.core.net.Payloads;
 import dev.riftal.creator.core.registry.Registrar;
 import dev.riftal.creator.core.registry.RegistryEntry;
-import dev.riftal.creator.features.arsenal.client.ArsenalClientFx;
 import dev.riftal.creator.features.arsenal.client.GrappleHookRenderer;
 import dev.riftal.creator.features.arsenal.client.StormArrowRenderer;
+import dev.riftal.creator.features.arsenal.client.StormBowProperties;
 import dev.riftal.creator.features.arsenal.command.ArsenalCommands;
 import dev.riftal.creator.features.arsenal.entity.GrappleHookEntity;
 import dev.riftal.creator.features.arsenal.entity.StormArrowEntity;
@@ -17,6 +17,7 @@ import dev.riftal.creator.features.arsenal.item.GrappleBladeItem;
 import dev.riftal.creator.features.arsenal.item.GravityHammerItem;
 import dev.riftal.creator.features.arsenal.item.SoulScytheItem;
 import dev.riftal.creator.features.arsenal.item.StormBowItem;
+import dev.riftal.creator.features.arsenal.net.GrappleFxHandler;
 import dev.riftal.creator.features.arsenal.net.GrappleFxPayload;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
@@ -182,10 +183,12 @@ public final class ArsenalFeature implements Feature {
                 })
                 .build());
 
-        // Cosmetic server-to-client hook effects. Registered on both sides so the payload type
-        // exists on a dedicated server; the handler body only ever runs on a client.
-        Payloads.registerS2C(GrappleFxPayload.TYPE, GrappleFxPayload.CODEC,
-                payload -> ArsenalClientFx.play(payload));
+        // Cosmetic server-to-client hook effects. Registered on both sides because the payload type
+        // has to exist on a dedicated server for the server to be allowed to send it; the handler
+        // body only ever runs on a client. The lambda targets GrappleFxHandler, which is ordinary
+        // common code - see that class for why a method reference straight to the client class is a
+        // latent dedicated-server NoClassDefFoundError rather than a style question.
+        Payloads.registerS2C(GrappleFxPayload.TYPE, GrappleFxPayload.CODEC, GrappleFxHandler::play);
 
         ArsenalCommands.register();
     }
@@ -200,5 +203,9 @@ public final class ArsenalFeature implements Feature {
     public void initClient() {
         ClientRenderers.entityRenderer(GRAPPLE_HOOK, GrappleHookRenderer::new);
         ClientRenderers.entityRenderer(STORM_ARROW, StormArrowRenderer::new);
+        // The bow draw animation: vanilla's pull/pulling predicates, registered for our bow so the
+        // storm_bow_pulling_0..2 overrides in the item model can be selected. Both loaders reach
+        // initClient() after the item registry has been flushed, so STORM_BOW.get() is bound.
+        StormBowProperties.register();
     }
 }

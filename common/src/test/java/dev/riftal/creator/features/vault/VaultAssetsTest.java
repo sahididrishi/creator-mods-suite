@@ -8,6 +8,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.riftal.creator.features.vault.block.AltarState;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -15,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +24,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -185,20 +188,52 @@ class VaultAssetsTest {
 
     @Test
     void noModelLeavesATextureSlotUnfilled() {
-        // cursed_altar_template declares #base and #crystal; every model that uses it as a parent
-        // must fill both or the altar renders untextured.
-        Set<String> slots = Set.of("base", "crystal");
-        for (Path model : filesIn("models/block")) {
+        // Two altar templates now: cursed_altar_template is pedestal + crystal and is what the
+        // BlockItem uses (an item has no block entity, so nothing would draw its crystal);
+        // cursed_altar_pedestal is pedestal only and is what the placed block uses, because
+        // CursedAltarRenderer draws the crystal so it can rise and spin. Each declares its own
+        // slots, and a child that leaves one unfilled renders untextured.
+        Map<String, Set<String>> required = Map.of(
+                "block/cursed_altar_template", Set.of("base", "crystal"),
+                "block/cursed_altar_pedestal", Set.of("base"));
+        List<Path> models = new ArrayList<>();
+        models.addAll(filesIn("models/block"));
+        models.addAll(filesIn("models/item"));
+
+        int checked = 0;
+        for (Path model : models) {
             JsonObject root = json(model);
-            if (!root.has("parent")
-                    || !root.get("parent").getAsString().endsWith("block/cursed_altar_template")) {
+            if (!root.has("parent")) {
                 continue;
             }
-            JsonObject textures = root.getAsJsonObject("textures");
-            for (String slot : slots) {
-                assertTrue(textures != null && textures.has(slot),
-                        model.getFileName() + " does not fill the #" + slot + " slot");
+            String parent = root.get("parent").getAsString();
+            for (Map.Entry<String, Set<String>> template : required.entrySet()) {
+                if (!parent.endsWith(template.getKey())) {
+                    continue;
+                }
+                checked++;
+                JsonObject textures = root.getAsJsonObject("textures");
+                for (String slot : template.getValue()) {
+                    assertTrue(textures != null && textures.has(slot),
+                            model.getFileName() + " does not fill the #" + slot + " slot");
+                }
             }
+        }
+        assertTrue(checked >= AltarState.values().length + 1,
+                "expected one model per altar state plus the block item, checked " + checked);
+    }
+
+    @Test
+    void theAnimatedCrystalHasOneSheetPerStateAtTheSizeTheModelBakes() {
+        // CursedAltarModel bakes its 6x4x6 box against a 32x32 layer: the UV net of that box is
+        // 2 * (6 + 6) = 24 pixels across, so a 16x16 sheet silently wraps and the crystal renders
+        // with the wrong pixels on four of its six faces.
+        for (AltarState state : AltarState.values()) {
+            Path sheet = assets.resolve(
+                    "textures/entity/cursed_altar_crystal_" + state.getSerializedName() + ".png");
+            int[] size = pngSize(sheet);
+            assertEquals(32, size[0], sheet.getFileName() + " width");
+            assertEquals(32, size[1], sheet.getFileName() + " height");
         }
     }
 
@@ -263,6 +298,68 @@ class VaultAssetsTest {
         int[] size = pngSize(assets.resolve("textures/entity/vault_keeper.png"));
         assertEquals(64, size[0], "entity sheet width");
         assertEquals(64, size[1], "entity sheet height");
+    }
+
+    @Test
+    void theKeeperTextureIsASkinAndNotARepeatingTile() {
+        // This shipped once as the same 8x8 cell tiled 8x8 times: every UV region - body, arms,
+        // legs, the overlay layer - was byte-identical, so the mini-boss rendered as a featureless
+        // purple blob with two red dots. The regions below are the real humanoid layout, read off
+        // HumanoidModel.createMesh: head texOffs(0,0) 8x8x8, body (16,16) 8x12x4,
+        // arm (40,16) 4x12x4, leg (0,16) 4x12x4, each unwrapping as
+        // down/up/right/front/left/back across the sheet.
+        BufferedImage sheet = image(assets.resolve("textures/entity/vault_keeper.png"));
+
+        Map<String, int[]> faces = new LinkedHashMap<>();
+        faces.put("head front", new int[]{8, 8, 8, 8});
+        faces.put("head back", new int[]{24, 8, 8, 8});
+        faces.put("body front", new int[]{20, 20, 8, 12});
+        faces.put("body back", new int[]{32, 20, 8, 12});
+        faces.put("arm front", new int[]{44, 20, 4, 12});
+        faces.put("leg front", new int[]{4, 20, 4, 12});
+
+        Map<String, String> fingerprints = new LinkedHashMap<>();
+        for (Map.Entry<String, int[]> face : faces.entrySet()) {
+            int[] box = face.getValue();
+            StringBuilder print = new StringBuilder();
+            for (int y = box[1]; y < box[1] + box[3]; y++) {
+                for (int x = box[0]; x < box[0] + box[2]; x++) {
+                    print.append(Integer.toHexString(sheet.getRGB(x, y)));
+                }
+            }
+            fingerprints.put(face.getKey(), print.toString());
+        }
+
+        for (Map.Entry<String, String> a : fingerprints.entrySet()) {
+            for (Map.Entry<String, String> b : fingerprints.entrySet()) {
+                if (a.getKey().compareTo(b.getKey()) >= 0) {
+                    continue;
+                }
+                assertFalse(a.getValue().equals(b.getValue()),
+                        "'" + a.getKey() + "' and '" + b.getKey()
+                                + "' are pixel-identical - this is a tile, not a skin");
+            }
+        }
+
+        Set<Integer> colours = new HashSet<>();
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                colours.add(sheet.getRGB(x, y));
+            }
+        }
+        assertTrue(colours.size() >= 6,
+                "a stone construct needs more than " + colours.size() + " colours to read as one");
+    }
+
+    private static BufferedImage image(Path path) {
+        assertTrue(Files.isRegularFile(path), "missing texture " + path);
+        try {
+            BufferedImage image = ImageIO.read(path.toFile());
+            assertTrue(image != null, "could not decode " + path);
+            return image;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     // ----------------------------------------------------------------- utils

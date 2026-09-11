@@ -8,7 +8,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 
 /**
- * The three data-pack tags the rules consult. All three ship with sensible defaults under
+ * The four data-pack tags the rules consult. All four ship with sensible defaults under
  * {@code data/creator_rules/tags/} and are meant to be edited by pack makers rather than by code.
  */
 public final class RuleTags {
@@ -23,6 +23,9 @@ public final class RuleTags {
     /** Blocks {@code lava_floor} refuses to melt. */
     public static final TagKey<Block> LAVA_FLOOR_IMMUNE =
             TagKey.create(Registries.BLOCK, id("lava_floor_immune"));
+
+    /** Blocks that open the {@code hearts_currency} shop when right-clicked. */
+    public static final TagKey<Block> SHOP_BLOCKS = TagKey.create(Registries.BLOCK, id("shop_blocks"));
 
     /** Mobs {@code giant_mobs} leaves at their normal size. */
     public static final TagKey<EntityType<?>> NO_GIANT =

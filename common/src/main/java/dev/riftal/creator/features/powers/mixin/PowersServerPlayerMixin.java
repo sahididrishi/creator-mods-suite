@@ -2,8 +2,11 @@ package dev.riftal.creator.features.powers.mixin;
 
 import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.features.powers.PowersFeature;
+import dev.riftal.creator.features.powers.server.PowerManager;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.portal.DimensionTransition;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -39,5 +42,24 @@ public abstract class PowersServerPlayerMixin {
             return;
         }
         cir.setReturnValue(false);
+    }
+
+    /**
+     * A dimension change reuses the same {@code ServerPlayer} but makes the client rebuild its
+     * level from a respawn packet, which takes the HUD row with it. Re-sync on the spot rather than
+     * waiting for the resync sweep, and with the new level's clock so the sweeps stay exact.
+     */
+    @Inject(
+            method = "changeDimension(Lnet/minecraft/world/level/portal/DimensionTransition;)"
+                    + "Lnet/minecraft/world/entity/Entity;",
+            at = @At("RETURN"))
+    private void creator_powers$onChangeDimension(DimensionTransition transition,
+                                                  CallbackInfoReturnable<Entity> cir) {
+        if (!CreatorMods.isEnabled(PowersFeature.ID)) {
+            return;
+        }
+        if (cir.getReturnValue() instanceof ServerPlayer player) {
+            PowerManager.onDimensionChange(player);
+        }
     }
 }

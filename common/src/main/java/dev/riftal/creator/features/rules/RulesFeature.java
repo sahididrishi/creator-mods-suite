@@ -30,7 +30,8 @@ import static dev.riftal.creator.Constants.LOG;
  * and persisted with the world. {@code /rule random_drops on} and the next block drops a saddle.
  *
  * <p>The feature registers no blocks, items or entities: it has no creative tab and no art. What it
- * does declare is one per-player attachment, two server-to-client payloads and two command roots.
+ * does declare is one per-player attachment, one gamerule, two server-to-client payloads and two
+ * command roots.
  * Everything else hangs off {@link RuleManager}, which is driven by the mixins in
  * {@code dev.riftal.creator.features.rules.mixin} through
  * {@link dev.riftal.creator.features.rules.hooks.RuleHooks} - and every one of those hooks is a
@@ -69,6 +70,10 @@ public final class RulesFeature implements Feature {
     @Override
     public void registerContent() {
         heartsSpent = PlayerData.register(rl("hearts_spent"), Codec.INT, () -> 0, true);
+
+        // Before any world exists, on both sides: vanilla builds a GameRules instance per world and
+        // anything registered after that is simply not in it.
+        RuleGameRules.register();
 
         RuleRegistry.register(new RandomDropsRule());
         RuleRegistry.register(new CraftsX10Rule());

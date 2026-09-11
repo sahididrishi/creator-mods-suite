@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish the GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make the wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Build
+        run: ./gradlew build --stacktrace
+
+      # One directory holding exactly the two shipping jars. `jar` also produces -sources and
+      # -javadoc jars in the same libs directory, and :common's jar is build-time only.
+      - name: Collect the loader jars
+        run: |
+          mkdir -p build/release
+          for module in fabric neoforge; do
+            find "$module/build/libs" -maxdepth 1 -name '*.jar' \
+              ! -name '*-sources.jar' ! -name '*-javadoc.jar' \
+              -exec cp {} build/release/ \;
+          done
+          ls -l build/release
+
+      # Pulls the section for this tag out of CHANGELOG.md. The tag is vX.Y.Z and the heading is
+      # "## [X.Y.Z] - date"; `index(...) == 1` is a literal prefix match, so the [ and ] in the
+      # heading need no regex escaping.
+      - name: Extract the release notes from CHANGELOG.md
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v hdr="## [$VERSION]" '
+            index($0, hdr) == 1 { found = 1; next }
+            found && index($0, "## [") == 1 { exit }
+            found { print }
+          ' CHANGELOG.md > build/release-notes.md
+          if [ ! -s build/release-notes.md ]; then
+            echo "No CHANGELOG.md section for $VERSION; falling back to a stub." >&2
+            printf 'Release %s. See CHANGELOG.md.\n' "$GITHUB_REF_NAME" > build/release-notes.md
+          fi
+          cat build/release-notes.md
+
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: build/release-notes.md
+          files: build/release/*.jar
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+      # Modrinth / CurseForge publishing would go here, after the GitHub Release step, e.g. a
+      # `Kir-Antipov/mc-publish` step reading MODRINTH_TOKEN and CURSEFORGE_TOKEN from repository
+      # secrets and uploading the same two jars with game-version 1.21.1 and loaders fabric +
+      # neoforge. Deliberately not enabled: this project has no Modrinth or CurseForge project id
+      # yet, and a publish step without one fails the release after the jars are already attached.

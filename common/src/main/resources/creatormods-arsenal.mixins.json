@@ -3,8 +3,12 @@
   "minVersion": "0.8",
   "package": "dev.riftal.creator.features.arsenal.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
-  "client": [],
+  "mixins": [
+    "ArsenalMinecraftServerMixin"
+  ],
+  "client": [
+    "ArsenalItemPropertiesMixin"
+  ],
   "server": [],
   "injectors": {
     "defaultRequire": 1

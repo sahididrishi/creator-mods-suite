@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.riftal.creator.features.evolve.perk.StagePerk;
 import dev.riftal.creator.features.evolve.perk.StagePerks;
+import dev.riftal.creator.features.evolve.perk.impl.BurrowPerk;
+import dev.riftal.creator.features.evolve.perk.impl.ChargePerk;
 import dev.riftal.creator.features.evolve.perk.impl.RoarPerk;
 import dev.riftal.creator.features.evolve.perk.impl.StompPerk;
 import dev.riftal.creator.features.evolve.stage.EvolutionStage;
@@ -68,8 +70,28 @@ class StagePerksTest {
         // The heartbeat only wakes every TICK_PERIOD ticks, so anything a perk counts in ticks has
         // to be a multiple of it or the count never lands on its target.
         assertTrue(StagePerks.TICK_PERIOD > 0, "the heartbeat needs a positive period");
-        assertEquals(0, 20 % StagePerks.TICK_PERIOD,
-                "Burrow charges for 20 ticks; the heartbeat must divide that");
+        assertEquals(0, BurrowPerk.CHARGE_TICKS % StagePerks.TICK_PERIOD,
+                "Burrow's charge time must be a whole number of heartbeats");
+    }
+
+    /**
+     * The plan's stage table is the contract for these two, and both used to disagree with it:
+     * Burrow gave 2 s of invisibility with no cooldown at all (so a Hatchling could crouch on dirt
+     * and stay invisible for the whole take), and Charge gave Strength I while sprinting rather
+     * than +4 on a sprint hit.
+     */
+    @Test
+    void burrowAndChargeNumbersMatchThePlan() {
+        assertEquals(20, BurrowPerk.CHARGE_TICKS, "1 s of crouching before it fires");
+        assertEquals(100, BurrowPerk.EFFECT_TICKS, "5 s of invisibility");
+        assertEquals(400, BurrowPerk.COOLDOWN_TICKS, "20 s cooldown");
+        assertTrue(BurrowPerk.COOLDOWN_TICKS > BurrowPerk.EFFECT_TICKS,
+                "the cooldown has to outlast the effect or Burrow is permanent invisibility");
+
+        assertEquals(4.0D, ChargePerk.BONUS_DAMAGE, 1.0E-6D, "+4 damage on a sprint hit");
+        assertEquals(1.5D, ChargePerk.KNOCKBACK, 1.0E-6D, "knockback 1.5 on a sprint hit");
+        assertEquals(EvolveFeature.NAMESPACE, ChargePerk.CHARGE_ID.getNamespace(),
+                "the sprint modifier id belongs to this feature");
     }
 
     @Test

@@ -1,6 +1,6 @@
 # creator_rules - asset inventory
 
-The Rule Engine is commands, a HUD layer, six mixins and a pile of data-pack JSON. It registers
+The Rule Engine is commands, a HUD layer, ten mixins and a pile of data-pack JSON. It registers
 **no blocks, no items, no entity types, no sound events, no particles and no creative tab**, so it
 ships **no textures, no models, no blockstates, no loot tables, no GeckoLib geo/animations and no
 `.ogg` files** - and therefore has no `tools/` generator script, because there is nothing
@@ -35,6 +35,7 @@ stacks with a `DataComponents.LORE` line.
 | `data/creator_rules/tags/block/lava_floor_immune.json` | JSON tag | HAND-WRITTEN, FINAL | - |
 | `data/creator_rules/tags/entity_type/no_giant.json` | JSON tag | HAND-WRITTEN, FINAL | - |
 | `data/creator_rules/tags/item/never_random.json` | JSON tag | HAND-WRITTEN, FINAL | - |
+| `data/creator_rules/tags/block/shop_blocks.json` | JSON tag | HAND-WRITTEN, FINAL | - |
 | `creatormods-rules.mixins.json` | JSON | HAND-WRITTEN, FINAL | - |
 | `data/creator_rules/structure/empty.nbt` | GameTest template | PROVIDED BY THE SCAFFOLD | - |
 

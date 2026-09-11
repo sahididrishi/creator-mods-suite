@@ -51,4 +51,24 @@ public class ToolkitNeoForgeGameTests {
     public void cameraBookmarksRoundTripThroughSavedState(GameTestHelper helper) {
         ToolkitGameTests.cameraBookmarksRoundTripThroughSavedState(helper);
     }
+
+    @GameTest(template = "empty")
+    public void cheatGodBlocksDamage(GameTestHelper helper) {
+        ToolkitGameTests.cheatGodBlocksDamage(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void tpHereSetsExactRotation(GameTestHelper helper) {
+        ToolkitGameTests.tpHereSetsExactRotation(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void silentModeFlipsGamerules(GameTestHelper helper) {
+        ToolkitGameTests.silentModeFlipsGamerules(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void hideNametagsTeamsTheCrewForVanillaClients(GameTestHelper helper) {
+        ToolkitGameTests.hideNametagsTeamsTheCrewForVanillaClients(helper);
+    }
 }

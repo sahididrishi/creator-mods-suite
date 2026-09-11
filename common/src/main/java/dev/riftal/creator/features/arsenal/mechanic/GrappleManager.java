@@ -22,7 +22,14 @@ import java.util.UUID;
  */
 public final class GrappleManager {
 
-    /** Scheduler tag for every grapple task, so {@code /arsenal hook retract} can wipe them. */
+    /**
+     * Scheduler tag for every grapple task, so {@link #reset()} can wipe them all at once.
+     *
+     * <p>Not used by {@code /arsenal hook retract}: that is per-player, and
+     * {@code TickScheduler.cancelAll} takes a tag, not a player, so cancelling by tag there would
+     * cut every other player's line as well. {@link #clear(ServerPlayer)} drops the player's own
+     * entry instead and the task notices on its next tick.
+     */
     public static final ResourceLocation TASK_TAG = ArsenalFeature.res("grapple");
 
     private static final Map<UUID, GrappleHookEntity> HOOKS = new HashMap<>();
@@ -135,6 +142,19 @@ public final class GrappleManager {
         }
         had |= PULLS.remove(id) != null;
         return had;
+    }
+
+    /**
+     * Forgets every hook and every pull. Called from
+     * {@link dev.riftal.creator.features.arsenal.ArsenalRuntime} when the server stops: a live
+     * {@code GrappleHookEntity} in {@code HOOKS} holds its {@code Level}, so without this, leaving
+     * a single-player world and loading another keeps the whole previous world reachable for the
+     * rest of the JVM's life.
+     */
+    public static void reset() {
+        HOOKS.clear();
+        PULLS.clear();
+        TickScheduler.cancelAll(TASK_TAG);
     }
 
     private GrappleManager() {

@@ -54,11 +54,6 @@ public class RulesFabricGameTests implements FabricGameTest {
     }
 
     @GameTest(template = EMPTY)
-    public void blocksExplodeLeavesTheBuildStanding(GameTestHelper helper) {
-        RulesGameTests.blocksExplodeLeavesTheBuildStanding(helper);
-    }
-
-    @GameTest(template = EMPTY)
     public void inventoryShufflePermutesTheMainSlots(GameTestHelper helper) {
         RulesGameTests.inventoryShufflePermutesTheMainSlots(helper);
     }
@@ -81,5 +76,25 @@ public class RulesFabricGameTests implements FabricGameTest {
     @GameTest(template = EMPTY)
     public void randomDropsReplacesDropsButNeverInventsThem(GameTestHelper helper) {
         RulesGameTests.randomDropsReplacesDropsButNeverInventsThem(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void giantMobsDoesNotHealOnRegrowth(GameTestHelper helper) {
+        RulesGameTests.giantMobsDoesNotHealOnRegrowth(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void blocksExplodeSparesTheBuildAndTheDrops(GameTestHelper helper) {
+        RulesGameTests.blocksExplodeSparesTheBuildAndTheDrops(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void blocksExplodeCooldownSuppressesTheSecondBreak(GameTestHelper helper) {
+        RulesGameTests.blocksExplodeCooldownSuppressesTheSecondBreak(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void presetApplyAndClearDriveTheEngine(GameTestHelper helper) {
+        RulesGameTests.presetApplyAndClearDriveTheEngine(helper);
     }
 }

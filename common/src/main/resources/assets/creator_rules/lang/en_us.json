@@ -34,6 +34,9 @@
   "commands.creator_rules.on": "✔ %s ON",
   "commands.creator_rules.off": "✘ %s OFF",
   "commands.creator_rules.already": "%s is already in that state",
+  "commands.creator_rules.fired": "⚡ %s fired",
+  "commands.creator_rules.inactive": "%s is not switched on, so there is nothing to fire",
+  "commands.creator_rules.unsupported": "%s has nothing to fire on demand",
   "commands.creator_rules.unknown": "Unknown rule '%s'",
   "commands.creator_rules.no_world": "No world is loaded, so there is nothing to change",
   "commands.creator_rules.list.header": "Rules (%s of %s active)",
@@ -49,6 +52,9 @@
   "commands.creator_rules.preset.reloaded": "Presets reloaded (%s)",
   "commands.creator_rules.shop.player_only": "/shop has to be run by a player",
   "commands.creator_rules.shop.inactive": "The shop is closed: hearts_currency is not active",
+
+  "gamerule.creator_rules.rulesHud": "Show the rule list on the HUD",
+  "gamerule.creator_rules.rulesHud.description": "When off, the top-right RULES list is hidden on every client. /rule hud on|off writes the same value.",
 
   "container.creator_rules.shop": "Heart Shop",
   "container.creator_rules.shop.cost": "Cost: %s ❤",

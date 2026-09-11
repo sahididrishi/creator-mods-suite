@@ -86,4 +86,34 @@ public class EvolveNeoForgeGameTests {
     public void multiStageJumpLandsOnApexWithoutSpawningABeast(GameTestHelper helper) {
         EvolveGameTests.multiStageJumpLandsOnApexWithoutSpawningABeast(helper);
     }
+
+    @GameTest(template = "empty")
+    public void apexBeastHitboxMatchesTheMesh(GameTestHelper helper) {
+        EvolveGameTests.apexBeastHitboxMatchesTheMesh(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void strippingUndoesEveryStageModifier(GameTestHelper helper) {
+        EvolveGameTests.strippingUndoesEveryStageModifier(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public void brollFxNeverCancelsALiveTransformation(GameTestHelper helper) {
+        EvolveGameTests.brollFxNeverCancelsALiveTransformation(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public void fxStopLeavesALiveSequenceAlone(GameTestHelper helper) {
+        EvolveGameTests.fxStopLeavesALiveSequenceAlone(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public void deathKeepsTheStageAndTheBodyComesBack(GameTestHelper helper) {
+        EvolveGameTests.deathKeepsTheStageAndTheBodyComesBack(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void sprintHitsCarryTheChargeBonus(GameTestHelper helper) {
+        EvolveGameTests.sprintHitsCarryTheChargeBonus(helper);
+    }
 }

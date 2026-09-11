@@ -53,11 +53,6 @@ public class RulesNeoForgeGameTests {
     }
 
     @GameTest(template = "empty")
-    public void blocksExplodeLeavesTheBuildStanding(GameTestHelper helper) {
-        RulesGameTests.blocksExplodeLeavesTheBuildStanding(helper);
-    }
-
-    @GameTest(template = "empty")
     public void inventoryShufflePermutesTheMainSlots(GameTestHelper helper) {
         RulesGameTests.inventoryShufflePermutesTheMainSlots(helper);
     }
@@ -80,5 +75,25 @@ public class RulesNeoForgeGameTests {
     @GameTest(template = "empty")
     public void randomDropsReplacesDropsButNeverInventsThem(GameTestHelper helper) {
         RulesGameTests.randomDropsReplacesDropsButNeverInventsThem(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void giantMobsDoesNotHealOnRegrowth(GameTestHelper helper) {
+        RulesGameTests.giantMobsDoesNotHealOnRegrowth(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void blocksExplodeSparesTheBuildAndTheDrops(GameTestHelper helper) {
+        RulesGameTests.blocksExplodeSparesTheBuildAndTheDrops(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void blocksExplodeCooldownSuppressesTheSecondBreak(GameTestHelper helper) {
+        RulesGameTests.blocksExplodeCooldownSuppressesTheSecondBreak(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void presetApplyAndClearDriveTheEngine(GameTestHelper helper) {
+        RulesGameTests.presetApplyAndClearDriveTheEngine(helper);
     }
 }

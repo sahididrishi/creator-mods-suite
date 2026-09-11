@@ -44,12 +44,24 @@ public final class ToolkitFeature implements Feature {
     public static final String NAMESPACE = "creator_toolkit";
 
     /**
-     * Key code the mark key listens on: {@code M}, i.e. {@code GLFW_KEY_M} / {@code InputConstants.KEY_M}.
+     * Cached copy of {@code CreatorMods.isEnabled(ID)}, set once in {@link #initCommon()}.
      *
-     * <p>Spelled as a literal because {@code InputConstants} is {@code @OnlyIn(Dist.CLIENT)} and this
-     * class is loaded on dedicated servers. A compile-time constant costs no class loading.
+     * <p>The mixins in this feature run on the hottest paths the game has - once per entity per
+     * server tick, once per entity per frame - and {@code CreatorMods.isEnabled} builds a stream
+     * pipeline and a capturing lambda on every call. The value cannot change at runtime
+     * ({@code CreatorMods.active} is assigned once during init and {@code /creator feature} only
+     * writes the config for the <em>next</em> start), so it is resolved once and read as a field.
+     *
+     * <p>A feature the config switched off never gets {@code initCommon()}, so this stays false and
+     * every injection returns immediately - which is exactly what {@code CONTRACT.md} §10.2 asks
+     * the enabled-guard to do.
      */
-    public static final int MARK_KEY = 77;
+    private static volatile boolean enabled;
+
+    /** The enabled-guard every {@code toolkit} mixin uses as its first statement. */
+    public static boolean enabled() {
+        return enabled;
+    }
 
     @Override
     public String id() {
@@ -70,8 +82,16 @@ public final class ToolkitFeature implements Feature {
         // S2C, registered on BOTH sides on purpose. The loader helpers register the payload *type*
         // in the same call as the receiver, so a dedicated server that never runs initClient() may
         // not send them at all - and on NeoForge the registrar is flushed right after construction,
-        // long before initClient() would fire. The lambda bodies only ever run on a client, so
-        // ClientToolkitState (which touches net.minecraft.client) is never loaded on a server.
+        // long before initClient() would fire.
+        //
+        // These MUST stay lambdas and must never be turned into method references. A lambda's
+        // invokedynamic carries a method handle to a synthetic method on *this* class, so
+        // ClientToolkitState is named only by an invokestatic inside that synthetic body and is
+        // loaded lazily, on a client, on the first packet. `ClientToolkitState::onTakeState` would
+        // instead put a CONSTANT_MethodHandle whose owner is ClientToolkitState into the bootstrap
+        // arguments, and those resolve when the call site links - i.e. here, during
+        // registerContent(), on a dedicated server, where loading a class that touches
+        // net.minecraft.client is a hard error under NeoForge's RuntimeDistCleaner.
         Payloads.registerS2C(TakeStatePayload.TYPE, TakeStatePayload.CODEC,
                 payload -> ClientToolkitState.onTakeState(payload));
         Payloads.registerS2C(FreezeStatePayload.TYPE, FreezeStatePayload.CODEC,
@@ -84,6 +104,8 @@ public final class ToolkitFeature implements Feature {
 
     @Override
     public void initCommon() {
+        enabled = true;
+        ToolkitRuntime.bootstrapLoaderGlue();
         LOG.info("[toolkit] ready - /toolkit take|freeze|wave|arena|cam|cheat|hide|tphere");
     }
 

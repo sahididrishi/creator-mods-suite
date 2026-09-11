@@ -5,11 +5,15 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "RulesBlockMixin",
+    "RulesGameRulesBooleanValueMixin",
+    "RulesGameRulesMixin",
     "RulesLivingEntityMixin",
     "RulesMinecraftServerMixin",
     "RulesPlayerListMixin",
     "RulesResultSlotMixin",
-    "RulesServerPlayerGameModeMixin"
+    "RulesServerLevelMixin",
+    "RulesServerPlayerGameModeMixin",
+    "RulesServerPlayerMixin"
   ],
   "client": [],
   "server": [],

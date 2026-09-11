@@ -39,7 +39,8 @@ import static dev.riftal.creator.Constants.LOG;
  *   <li>{@code server/} - {@code PowerManager}, the one place that decides whether an ability fires.</li>
  *   <li>{@code command/} - the {@code /power} tree.</li>
  *   <li>{@code client/} - key mappings, the client mirror and the HUD layer. Client only.</li>
- *   <li>{@code mixin/} - one injection into {@code LivingEntity#hurt} for the dome and dash i-frames.</li>
+ *   <li>{@code mixin/} - the damage gate for the dome and dash i-frames, the join/respawn/logout
+ *       hooks the HUD and the effect teardown need, and the server-stopping wipe.</li>
  * </ul>
  *
  * <p>This feature owns, and nothing else:
@@ -101,7 +102,7 @@ public final class PowersFeature implements Feature {
     }
 
     /**
-     * Damage gate for {@code PowersLivingEntityMixin}: true when a Shield Dome or a dash i-frame
+     * Damage gate for {@code PowersServerPlayerMixin}: true when a Shield Dome or a dash i-frame
      * window should swallow this hit. Lives here so the mixin stays a three-line delegation.
      */
     public static boolean shouldCancelDamage(ServerPlayer player, DamageSource source) {
@@ -150,8 +151,10 @@ public final class PowersFeature implements Feature {
 
         // The command registrar is replayed every time the server builds its dispatcher - start-up
         // and every /reload - which is the one loader-neutral "a server is live now" hook core
-        // exposes. Use it to (re)arm the per-tick driver; startTicking() cancels the previous one,
-        // so a reload never doubles it up.
+        // exposes. Use it to arm the per-tick driver. startTicking() is a no-op while the driver is
+        // already running, so a /reload mid-take does not double it up and does not drop the dome,
+        // the frozen mobs or the ability FX that are in flight; the state wipe belongs to
+        // PowersMinecraftServerMixin's server-stopping hook instead.
         CommandHelper.register(dispatcher -> PowerManager.startTicking());
 
         LOG.info("[powers] {} abilities declared", AbilityRegistry.size());

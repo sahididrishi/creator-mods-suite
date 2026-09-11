@@ -4,7 +4,9 @@
   "package": "dev.riftal.creator.features.vault.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
-  "client": [],
+  "client": [
+    "VaultBlockEntityRenderersMixin"
+  ],
   "server": [],
   "injectors": {
     "defaultRequire": 1

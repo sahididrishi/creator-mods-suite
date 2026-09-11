@@ -1,6 +1,8 @@
 package dev.riftal.creator.features.powers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -60,12 +62,47 @@ class PowerPayloadTest {
     @Test
     void cooldownStartRoundTripsWithItsThreeClocks() {
         CooldownStartPayload decoded = roundTrip(
-                new CooldownStartPayload(DOME, 1_000L, 1_400L, 1_000L), CooldownStartPayload.CODEC);
+                new CooldownStartPayload(DOME, 1_000L, 1_400L, 1_000L, false), CooldownStartPayload.CODEC);
 
         assertEquals(DOME, decoded.abilityId());
         assertEquals(1_000L, decoded.startedAt());
         assertEquals(1_400L, decoded.readyAt());
         assertEquals(1_000L, decoded.serverGameTime());
+        assertFalse(decoded.refused(), "an ability that actually fired is not a refusal");
+    }
+
+    /**
+     * A refusal is what the HUD reads to shake the slot instead of chiming. It has to survive the
+     * wire, and it has to be distinguishable from the zero-length window it shares its clocks with:
+     * without the flag, {@code startedAt == readyAt == now} is exactly "this slot is ready", and the
+     * client's ready edge-detector plays the chime at a player who was just told no.
+     */
+    @Test
+    void aRefusalRoundTripsAndIsNotAZeroLengthCooldown() {
+        CooldownStartPayload refused = roundTrip(
+                new CooldownStartPayload(DASH, 900L, 900L, 900L, true), CooldownStartPayload.CODEC);
+
+        assertTrue(refused.refused(), "the refusal marker must survive the wire");
+        assertEquals(refused.startedAt(), refused.readyAt(),
+                "a canUse refusal starts no cooldown at all");
+
+        CooldownStartPayload ready = roundTrip(
+                new CooldownStartPayload(DASH, 900L, 900L, 900L, false), CooldownStartPayload.CODEC);
+        assertFalse(ready.refused());
+        assertNotEquals(refused, ready,
+                "the two carry identical clocks, so only the flag can tell them apart");
+    }
+
+    /** The correction for a press during a cooldown carries the real window, not a fresh one. */
+    @Test
+    void aCooldownRefusalKeepsTheOriginalWindow() {
+        CooldownStartPayload decoded = roundTrip(
+                new CooldownStartPayload(DOME, 1_000L, 1_400L, 1_100L, true), CooldownStartPayload.CODEC);
+
+        assertTrue(decoded.refused());
+        assertEquals(1_000L, decoded.startedAt(), "the window must not restart from the press");
+        assertEquals(1_400L, decoded.readyAt());
+        assertEquals(1_100L, decoded.serverGameTime());
     }
 
     @Test

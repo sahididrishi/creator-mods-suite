@@ -1,6 +1,5 @@
 package dev.riftal.creator.features.toolkit.mixin;
 
-import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.features.toolkit.ToolkitFeature;
 import dev.riftal.creator.features.toolkit.ToolkitRuntime;
 import net.minecraft.server.MinecraftServer;
@@ -19,7 +18,7 @@ public abstract class ToolkitMinecraftServerMixin {
 
     @Inject(method = "stopServer()V", at = @At("HEAD"))
     private void creator_toolkit$flushTake(CallbackInfo ci) {
-        if (!CreatorMods.isEnabled(ToolkitFeature.ID)) {
+        if (!ToolkitFeature.enabled()) {
             return;
         }
         ToolkitRuntime.onServerStopping((MinecraftServer) (Object) this);

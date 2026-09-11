@@ -88,4 +88,34 @@ public class EvolveFabricGameTests implements FabricGameTest {
     public void multiStageJumpLandsOnApexWithoutSpawningABeast(GameTestHelper helper) {
         EvolveGameTests.multiStageJumpLandsOnApexWithoutSpawningABeast(helper);
     }
+
+    @GameTest(template = EMPTY)
+    public void apexBeastHitboxMatchesTheMesh(GameTestHelper helper) {
+        EvolveGameTests.apexBeastHitboxMatchesTheMesh(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void strippingUndoesEveryStageModifier(GameTestHelper helper) {
+        EvolveGameTests.strippingUndoesEveryStageModifier(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 200)
+    public void brollFxNeverCancelsALiveTransformation(GameTestHelper helper) {
+        EvolveGameTests.brollFxNeverCancelsALiveTransformation(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 200)
+    public void fxStopLeavesALiveSequenceAlone(GameTestHelper helper) {
+        EvolveGameTests.fxStopLeavesALiveSequenceAlone(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 200)
+    public void deathKeepsTheStageAndTheBodyComesBack(GameTestHelper helper) {
+        EvolveGameTests.deathKeepsTheStageAndTheBodyComesBack(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void sprintHitsCarryTheChargeBonus(GameTestHelper helper) {
+        EvolveGameTests.sprintHitsCarryTheChargeBonus(helper);
+    }
 }

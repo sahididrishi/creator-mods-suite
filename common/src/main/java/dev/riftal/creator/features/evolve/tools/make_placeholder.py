@@ -6,9 +6,9 @@
 Writes:
     assets/creator_evolve/textures/entity/apex_beast.png   128x128 RGBA
 
-The layout is not decorative: every painted island is the exact vanilla box unwrap of one cube in
-``ApexBeastModel.createBodyLayer()``, at the same ``texOffs`` and the same size. A vanilla cube of
-size (w, h, d) at texOffs (u, v) unwraps to
+The layout is not decorative: every painted island is the exact box unwrap of one cube in
+``assets/creator_evolve/geo/entity/apex_beast.geo.json``, at the same ``uv`` offset and the same
+size. A cube of size (w, h, d) at uv (u, v) unwraps to
 
     top    (u + d,         v,     w, d)     bottom (u + d + w,     v,     w, d)
     right  (u,             v + d, d, h)     front  (u + d,         v + d, w, h)
@@ -48,7 +48,7 @@ EYE = (255, 214, 92, 255)
 EYE_CORE = (255, 246, 214, 255)
 MAW = (58, 15, 30, 255)
 
-# --- the model, mirrored from ApexBeastModel.createBodyLayer() ----------------------------------
+# --- the model, mirrored from geo/entity/apex_beast.geo.json ------------------------------------
 # name: (u, v, width, height, depth)
 CUBES = {
     "body": (0, 0, 20, 30, 14),

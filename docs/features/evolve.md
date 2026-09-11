@@ -33,9 +33,9 @@ table, not a JSON.
 
 | Stage | Passive | What it does |
 |---|---|---|
-| 1 | Burrow | Crouch for one second on dirt, sand or snow → invisibility until you move or stand. |
+| 1 | Burrow | Crouch for one second on dirt, sand or snow → 5 s of invisibility, then a 20 s cooldown. |
 | 2 | Thick Skin | Resistance I whenever you are below half health. |
-| 3 | Charge | Strength I while sprinting. |
+| 3 | Charge | A sprinting hit lands for +4 damage and throws the target (knockback 1.5). |
 | 4 | Stomp | Landing from 3+ blocks deals 6 damage and knockback in a 3-block radius. |
 | 5 | Roar | `/evolve roar` scatters mobs within 10 blocks: target dropped, Weakness II, knockback. |
 
@@ -71,13 +71,26 @@ At stage 5 the client draws the Apex beast instead of the player's body, scaled 
 player's real hitbox height, for **everyone** who can see them (third person and other clients).
 The name tag is re-emitted; shadow and fire overlay are untouched.
 
+The beast is a **GeckoLib** model — `assets/creator_evolve/geo/entity/apex_beast.geo.json` plus
+`animations/entity/apex_beast.animation.json` (`idle`, `walk`, `roar`, `attack`) — and the model a
+player wears is the same model, renderer and animations you get from
+`/summon creator_evolve:apex_beast`. To animate it, the client keeps one never-spawned `ApexBeast`
+per Apex player and copies that player's position, rotations, walk speed and swing onto it each
+frame; nothing is ever spawned server side. The roar clip plays once when an Apex transformation
+lands and once per `/evolve roar`, for every client that can see you.
+
+The mesh is authored to exactly 4.68 blocks — a stage-5 player's hitbox height — so the beast fills
+the box it is standing in for instead of overshooting it.
+
 Known limitations, all deliberate for the MVP:
 
 * held items, armour, cape and elytra are not drawn at stage 5 — the beast has none of those;
 * **first-person arms are still player arms**. Film Apex in third person;
 * at 2.6× the third-person camera clips into ceilings — film Apex outdoors;
-* mods that also mixin `PlayerRenderer#render` (3D Skin Layers, Ears) may fight over the body. We
-  cancel at HEAD, so we win, but their layers vanish with the body at stage 5 only.
+* mods that also mixin `PlayerRenderer#render` (3D Skin Layers, Ears) keep working: we wrap the one
+  `LivingEntityRenderer.render` call inside it with a condition rather than cancelling the whole
+  method, so their own injections still run. Their *layers* still vanish with the body at stage 5,
+  because layers are drawn by the call we are skipping.
 
 ### HUD
 
@@ -86,6 +99,19 @@ floating `+N EVO` pop-ups (gold for kills, green for food, blue for commands) an
 banner plus a full-screen white flash during a transformation. The whole readout honours **F1**.
 
 ---
+
+## Registered content
+
+Evolve registers **no blocks, no items, no spawn egg and no creative tab** — the beast is reachable
+only through `/summon`. In full:
+
+| Registry / mechanism | Id |
+|---|---|
+| Entity type | `creator_evolve:apex_beast` (the GeckoLib beast; also the model a stage-5 player wears) |
+| Sound events | `creator_evolve:evolve.roar_small`, `evolve.roar_apex`, `evolve.complete` |
+| Player data attachment | `creator_evolve:evolution` — stage, XP, kills, the transformation flag and end tick, the model override; `copyOnDeath` |
+| Payloads (S2C) | `creator_evolve:sync`, `creator_evolve:transform_fx`, `creator_evolve:xp_popup` |
+| Attribute modifier ids | `creator_evolve:stage_scale`, `stage_health`, `stage_speed`, `stage_attack`, `stage_step`, `stage_jump`, `stage_reach_block`, `stage_reach_entity`, `stage_safe_fall`, `transform_lock` |
 
 ## Commands
 
@@ -99,11 +125,11 @@ from chat to the action bar — nothing this feature prints will land in your re
 | `/evolve info <player>` | 0 | The same for someone else. |
 | `/evolve set <targets> <1-5>` | 2 | Set the stage, **running the full transformation sequence**. |
 | `/evolve set <targets> <1-5> instant` | 2 | Set the stage with no sequence — snaps instantly. |
-| `/evolve xp <targets> <amount>` | 2 | Add evolution XP (negative allowed), auto-evolving on a threshold. |
+| `/evolve xp <targets> <amount>` | 2 | Add evolution XP, `-1000000 … 1000000` (negative allowed), auto-evolving on a threshold. |
 | `/evolve reset <targets>` | 2 | Back to Hatchling: stage 1, 0 XP, modifiers and passives cleared, model override released, health refilled. |
 | `/evolve roar [<targets>]` | 2 | Play the Apex roar and its particle ring on cue. At stage 5 it also scatters mobs within 10 blocks. Defaults to you. |
-| `/evolve fx <targets> start [<ticks>]` | 2 | Play the transformation particles, chime and flash **without changing stage** — b-roll only. 1–400 ticks, default 40. |
-| `/evolve fx <targets> stop` | 2 | Stop a running sequence's fx and release the movement lock. |
+| `/evolve fx <targets> start [<ticks>]` | 2 | Play the transformation particles, chime and flash **without changing stage** — b-roll only. 1–400 ticks, default 40. Refused on a player who is genuinely mid-transformation. |
+| `/evolve fx <targets> stop` | 2 | Stop a b-roll fx take. A real transformation is left strictly alone — its spiral, its lock and its finish all keep running. |
 | `/evolve model <targets> on\|off\|auto` | 2 | Force the beast model on, force the player skin on, or go back to following the stage. |
 
 Stepping *down* a stage never plays a sequence; stepping up with `set` does unless you add
@@ -125,6 +151,24 @@ you to the lower stage's floor.
 | Key | Values | Effect |
 |---|---|---|
 | `features.evolve` | `true` / `false` | `false` registers **nothing**: no entity type, no sounds, no attachment, no commands, no HUD, no payloads, and every mixin is inert. One key, one restart, a clean capture of the other seven features. |
+
+**Switching it off is reversible.** Stage modifiers are written as *permanent* attribute modifiers
+so they survive in the player's vanilla NBT — without that, an Apex player would be clamped from 50
+hp back to 20 on every relog, because vanilla loads attributes before health. The cost of permanent
+modifiers is that they would otherwise outlive the feature: a world where `evolve` was turned off
+would keep every player shrunk with nothing left running to undo it. So one hook stays live while
+the feature is off — `EvolveAttributeMapMixin` strips the ten fixed `creator_evolve:*` modifier ids
+as the entity's attributes load. Nothing else is touched; the stage data stays in the attachment, so
+turning the feature back on and rejoining puts you back on the rung you were standing on.
+
+If you ever need to do it by hand (an old world, the mod uninstalled entirely), the ids are
+`creator_evolve:stage_scale`, `stage_health`, `stage_speed`, `stage_attack`, `stage_step`,
+`stage_jump`, `stage_reach_block`, `stage_reach_entity`, `stage_safe_fall` and `transform_lock`:
+
+```
+/attribute <player> minecraft:generic.scale modifier remove creator_evolve:stage_scale
+/attribute <player> minecraft:generic.max_health modifier remove creator_evolve:stage_health
+```
 
 `/creator features` lists the state; `/creator feature evolve false` writes the key. **That is the
 only config surface this feature has** — the stage table, the XP awards and the sequence lengths
@@ -165,20 +209,44 @@ Useful while shooting:
   need anyone to be stage 5.
 * `/evolve info` — the exact numbers to read out in a voiceover.
 
-Multiplayer: every stage is synced to everyone who can see you, and the whole roster is re-sent
-every five seconds, so a second player joining mid-take sees the right sizes and the beast without
-anyone relogging.
+Multiplayer: your stage is sent to a player the moment you come into their tracking range (Fabric
+`EntityTrackingEvents.START_TRACKING`, NeoForge `PlayerEvent.StartTracking`), so someone walking up
+for the scale shot sees the beast on the first frame rather than up to five seconds later. The whole
+roster is still re-sent every five seconds as a backstop, and again on join, respawn and every
+dimension change.
 
 ---
 
+## What it deliberately does not do
+
+* **No balance config.** The ladder, the XP awards and the sequence lengths are code
+  (`stage/Stages.java`, `stage/StageMath.java`, `progression/Transformation.java`). A config value
+  that changes what gets registered is a start-up crash on NeoForge, so there is none.
+* **No items, no blocks, no spawn egg and no creative tab.** The beast is reachable through
+  `/summon creator_evolve:apex_beast` and through being stage 5; nothing else.
+* **No first-person beast arms**, and no held items, armour, cape or elytra at stage 5 — the beast
+  model has none of those. Film Apex in third person, outdoors.
+* **No XP for damage dealt, mining, or time played.** Kills, food and `/evolve xp` are the only
+  three sources.
+* **Stepping down never plays a sequence**, and `/evolve xp` with a negative amount leaves you
+  holding the XP you are left with rather than snapping to the lower stage's floor.
+* **Placeholder art.** The geometry and animations are a hand-authored blockout and the texture is
+  procedural; see `ASSETS.md`.
+
 ## Tests
 
-* `common/src/test/java/dev/riftal/creator/features/evolve/` — 54 JUnit tests: the threshold
-  ladder, progress and XP arithmetic, the stage table, the attachment record and its codec, the
-  three payload stream codecs, the perk table, the transformation/HUD timing curves, and an asset
-  test that every lang key, sound file and texture the code names actually ships.
-* `EvolveGameTests` (+ the two loader stubs) — 14 GameTests: the modifiers for every rung including
+* `common/src/test/java/dev/riftal/creator/features/evolve/` — JUnit: the threshold ladder,
+  progress and XP arithmetic, the stage table, the attachment record and its codec, the three
+  payload stream codecs (including the roar packet), the perk table and the plan's Burrow/Charge
+  numbers, the transformation and HUD timing curves (including the flash's fade-out surviving its
+  own STOP packet), and an asset test that every lang key, sound file, texture, GeckoLib bone and
+  animation clip the code names actually ships — and that the mesh is exactly as tall as
+  `ApexBeast.MODEL_HEIGHT`.
+* `EvolveGameTests` (+ the two loader stubs) — 20 GameTests: the modifiers for every rung including
   hitbox and eye height, health clamping, the movement lock, the attachment round trip, registered
-  ids vs. shipped assets, the Apex beast entity, and four end-to-end runs with a real
-  `ServerPlayer` — kill XP auto-evolving through a full sequence, a kill by something else awarding
-  nothing, eating bread, `reset`, and a multi-stage jump landing on Apex.
+  ids vs. shipped assets, the Apex beast entity and its hitbox, stripping every modifier back off
+  (the feature-disabled path), and end-to-end runs with a real `ServerPlayer` — kill XP
+  auto-evolving through a full sequence, a kill by something else awarding nothing, eating bread,
+  `reset`, a multi-stage jump landing on Apex, `/evolve fx` never stepping on a live
+  transformation in either direction, a sprint hit carrying the Charge bonus, and death + respawn
+  keeping both the stage and the body.

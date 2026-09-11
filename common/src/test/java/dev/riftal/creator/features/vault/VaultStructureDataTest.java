@@ -2,12 +2,16 @@ package dev.riftal.creator.features.vault;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import dev.riftal.creator.features.vault.worldgen.VaultStructures;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.levelgen.structure.pools.StructureTemplatePool;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -182,6 +186,75 @@ class VaultStructureDataTest {
             }
         }
         assertTrue(entries >= 5, "the reward chest should feel worth the fight");
+    }
+
+    // ------------------------------------------------------------- id constants
+
+    @Test
+    void theIdConstantsAreTheIdsTheJsonActuallyUses() {
+        // VaultStructures' whole justification is that the commands, the GameTests and these tests
+        // spell the same ids. That is only true if something reads it, so this does - renaming a
+        // pool in the constants now fails here instead of generating an empty structure in game.
+        JsonObject structure = json("worldgen/structure/cursed_vault.json");
+        assertEquals(VaultStructures.CURSED_VAULT.location().toString(),
+                NS + ":cursed_vault", "the structure key must match its file path");
+        assertEquals(VaultStructures.ENTRANCE_POOL.location().toString(),
+                structure.get("start_pool").getAsString());
+        assertEquals(VaultStructures.VAULT_START_Y,
+                structure.getAsJsonObject("start_height").get("absolute").getAsInt(),
+                "VAULT_START_Y is what /vault tp aims at; it has to be the real start height");
+
+        JsonObject set = json("worldgen/structure_set/cursed_vaults.json");
+        assertEquals(VaultStructures.CURSED_VAULT.location().toString(),
+                set.getAsJsonArray("structures").get(0).getAsJsonObject()
+                        .get("structure").getAsString());
+
+        // CURSED_VAULT_TAG is the STRUCTURE tag /vault tp resolves through
+        // (ServerLevel#findNearestMapStructure takes a TagKey), not the biome tag in `biomes`.
+        JsonObject tag = json("tags/worldgen/structure/"
+                + VaultStructures.CURSED_VAULT_TAG.location().getPath() + ".json");
+        assertEquals(VaultStructures.CURSED_VAULT.location().toString(),
+                tag.getAsJsonArray("values").get(0).getAsString(),
+                "the structure tag /vault tp searches must contain the structure");
+    }
+
+    @Test
+    void everyPoolConstantHasAFileAndEveryFileHasAConstant() {
+        List<String> onDisk = new ArrayList<>();
+        for (Path pool : poolFiles()) {
+            String relative = data.resolve("worldgen/template_pool").relativize(pool).toString()
+                    .replace('\\', '/').replace(".json", "");
+            onDisk.add(NS + ":" + relative);
+        }
+        for (ResourceKey<StructureTemplatePool> key : VaultStructures.POOLS) {
+            assertTrue(onDisk.contains(key.location().toString()),
+                    "VaultStructures names a pool with no file: " + key.location());
+        }
+        for (String id : onDisk) {
+            assertTrue(VaultStructures.POOLS.stream()
+                            .anyMatch(key -> key.location().toString().equals(id)),
+                    "pool file that VaultStructures.POOLS does not name: " + id);
+        }
+    }
+
+    @Test
+    void noPoolFallsBackToNothingExceptTheTerminalOnes() {
+        // A pool whose fallback is minecraft:empty leaves an open doorway into raw stone when its
+        // element does not fit. That is fine for a dead-end pool, which has nothing further to
+        // place, and is a hole in the set for anything else - the treasure pool most of all, whose
+        // failure used to mean a vault with no Cursed Altar in it at all.
+        for (Path pool : poolFiles()) {
+            String name = pool.getFileName().toString().replace(".json", "");
+            String fallback = json(data.relativize(pool).toString()).get("fallback").getAsString();
+            if (name.endsWith("_ends") || name.equals("entrance")) {
+                continue;
+            }
+            assertNotEquals("minecraft:empty", fallback,
+                    name + " must cap a failed placement rather than leave a hole");
+        }
+        assertEquals(VaultStructures.TREASURE_ENDS_POOL.location().toString(),
+                json("worldgen/template_pool/cursed_vault/treasure.json").get("fallback").getAsString(),
+                "a failed treasure room must still seal the entrance's south doorway");
     }
 
     private static List<Path> poolFiles() {

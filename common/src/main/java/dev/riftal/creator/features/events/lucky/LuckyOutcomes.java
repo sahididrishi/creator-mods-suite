@@ -1,5 +1,7 @@
 package dev.riftal.creator.features.events.lucky;
 
+import static dev.riftal.creator.Constants.LOG;
+
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -95,7 +97,14 @@ public final class LuckyOutcomes {
 
         LuckyOutcome outcome = new LuckyOutcome(type, weight, luck, id, command,
                 Math.max(1, count), radius, duration, amplifier, fire);
-        return outcome.isKnownType() ? outcome : null;
+        if (!outcome.isKnownType()) {
+            // The javadoc has always promised "skipped with a warning" and never emitted one, so a
+            // data-pack author whose outcome silently never fired had nothing to go on. `structure`
+            // is the common case: the plan lists it in the schema, this feature does not run it.
+            LOG.warn("[events] lucky outcome type '{}' is not supported; entry skipped", type);
+            return null;
+        }
+        return outcome;
     }
 
     private static String string(JsonObject object, String key, String fallback) {

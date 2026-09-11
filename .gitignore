@@ -56,6 +56,21 @@ Thumbs.db
 *~
 *.swp
 
+# --- JVM crash / profiling output ---
+# hs_err_*.log and replay_*.log are already covered by *.log below.
+*.hprof
+*.jfr
+
+# --- Secrets / local credentials ---
+.env
+*.env
+key.properties
+
+# --- Decompiled vanilla reference tree (CONTRACT.md section 3) ---
+# Normally lives outside the repo at ../mc-sources; ignored here in case anyone extracts it inside.
+mc-sources/
+
 # --- Misc ---
 *.log
+classes/
 local.properties

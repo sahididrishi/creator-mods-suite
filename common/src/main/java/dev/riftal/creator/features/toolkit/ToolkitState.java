@@ -57,10 +57,19 @@ public final class ToolkitState extends SavedData {
         return nextTakeNumber;
     }
 
-    /** Consumes and returns the next take number. */
+    /**
+     * Consumes and returns the next take number.
+     *
+     * <p>Take numbers are three digits because the log file name is
+     * {@code <world>_<date>_take-NNN.log}. Past 999 the counter wraps to 1 rather than sticking:
+     * clamping meant a long-running world claimed 999 forever and {@code TakeLog.open} truncated
+     * the same file on every single start, silently destroying the previous take's marks. A wrap
+     * can only collide with a take shot on the same day, and {@code /toolkit take set} is there for
+     * a director who wants to choose.
+     */
     public int claimTakeNumber() {
         int claimed = nextTakeNumber;
-        nextTakeNumber = Math.min(999, claimed + 1);
+        nextTakeNumber = claimed >= 999 ? 1 : claimed + 1;
         setDirty();
         return claimed;
     }

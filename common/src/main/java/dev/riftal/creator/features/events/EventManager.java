@@ -19,6 +19,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
@@ -259,7 +260,16 @@ public final class EventManager {
             phaseIndex = 0;
             phaseTick = 0;
             durationOverride = -1;
+            hudVisible = true;
             resumeFromDisk(server);
+            if (active == null) {
+                // Nothing to resume. Say so out loud: a client that quit a world mid-event and
+                // opened this one is still mirroring the old state, and an idle server otherwise
+                // never sends anything at all.
+                EventSavedData data = savedData(server);
+                hudVisible = data == null || data.hudVisible();
+                Payloads.sendToAll(server, EventStatePayload.IDLE.withHud(hudVisible));
+            }
         }
         if (active == null) {
             return;
@@ -294,16 +304,24 @@ public final class EventManager {
         }
     }
 
+    /**
+     * Whether the running phase is over.
+     *
+     * <p>The event always gets asked, even when {@code /event timer} set an override: its
+     * {@code isPhaseComplete} is not a pure predicate - {@code MeteorEvent} records the boulder's
+     * arrival point and discards it in there - so short-circuiting on the override made the meteor
+     * tunnel through the ground until the timer ran out. The override only ever <em>shortens</em>
+     * the phase.
+     */
     private static boolean isPhaseComplete(EventPhase phase) {
-        if (durationOverride >= 0) {
-            return phaseTick >= durationOverride;
-        }
+        boolean eventSaysDone = false;
         try {
-            return active.isPhaseComplete(context, phase, phaseTick);
+            eventSaysDone = active.isPhaseComplete(context, phase, phaseTick);
         } catch (RuntimeException e) {
             LOG.error("[events] '{}' threw checking phase completion", active.id(), e);
             return true;
         }
+        return eventSaysDone || (durationOverride >= 0 && phaseTick >= durationOverride);
     }
 
     private static void advancePhase() {
@@ -344,6 +362,12 @@ public final class EventManager {
         } catch (RuntimeException e) {
             progress = 0.0F;
         }
+        String ambientLoop;
+        try {
+            ambientLoop = active.ambientLoop();
+        } catch (RuntimeException e) {
+            ambientLoop = "";
+        }
         return new EventStatePayload(
                 active.id(),
                 phase == null ? "" : phase.id(),
@@ -356,7 +380,9 @@ public final class EventManager {
                 active.wave(),
                 active.waveTotal(),
                 active.alive(),
-                hudVisible);
+                hudVisible,
+                context.level().dimension().location().toString(),
+                ambientLoop == null ? "" : ambientLoop);
     }
 
     /** Whether the client should draw the director's HUD line. Toggled by {@code /event hud}. */
@@ -364,10 +390,46 @@ public final class EventManager {
         return hudVisible;
     }
 
-    /** {@code /event hud <on|off>}. The siege boss bar is vanilla and stays either way. */
+    /**
+     * {@code /event hud <on|off>}. The siege boss bar is vanilla and stays either way (start the
+     * siege with {@code bossbar=false} to lose that too).
+     *
+     * <p>Written through to {@link EventSavedData}: a thumbnail session that hid the HUD must
+     * survive the reload that usually follows it.
+     */
     public static void setHudVisible(boolean visible) {
         hudVisible = visible;
+        if (boundServer != null) {
+            EventSavedData data = savedData(boundServer);
+            if (data != null) {
+                data.setHudVisible(visible);
+            }
+        }
         broadcast();
+    }
+
+    /**
+     * A player joined: hand them to the running event and correct their client immediately rather
+     * than leaving them with a stale mirror until the next one-second broadcast.
+     *
+     * <p>Called from {@code EventsPlayerListMixin}.
+     */
+    public static void onPlayerJoin(ServerPlayer player) {
+        if (player == null) {
+            return;
+        }
+        WorldEvent running = active;
+        if (running != null && context != null && player.level() == context.level()) {
+            try {
+                running.onPlayerJoin(context, player);
+            } catch (RuntimeException e) {
+                LOG.error("[events] '{}' threw greeting a joining player", running.id(), e);
+            }
+        }
+        EventStatePayload state = active == null
+                ? EventStatePayload.IDLE.withHud(hudVisible)
+                : snapshot();
+        Payloads.sendToPlayer(player, state);
     }
 
     /** Id of the last event that finished, for {@code /event status} while idle. */
@@ -429,6 +491,7 @@ public final class EventManager {
         if (data == null) {
             return;
         }
+        hudVisible = data.hudVisible();
         CompoundTag tag = data.active();
         if (tag == null) {
             return;

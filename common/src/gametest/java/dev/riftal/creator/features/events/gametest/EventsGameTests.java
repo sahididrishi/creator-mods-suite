@@ -14,9 +14,16 @@ import dev.riftal.creator.features.events.util.EventOptions;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * GameTest bodies for the {@code events} feature. Vanilla API only, so both loaders can call them.
@@ -221,6 +228,123 @@ public final class EventsGameTests {
             helper.assertTrue(EventManager.stop(StopReason.STOPPED), "voidrise should stop");
             helper.succeed();
         });
+    }
+
+    /**
+     * The money shot: {@code /event skip} twice takes the meteor from countdown, past the flight,
+     * into the impact, and the impact leaves a loot chest sitting in a carved crater with the
+     * boulder gone. Nothing else in the suite executes {@code carveCrater} or
+     * {@code RandomizableContainer#setBlockEntityLootTable} at all.
+     *
+     * <p>Runs alone in its own batch, and not only for the director's single active-event slot: the
+     * impact is a radius-6 TNT explosion and a radius-5 crater, which reach well outside this arena.
+     */
+    public static void meteorImpactCreatesChest(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos centre = new BlockPos(4, 2, 4);
+        Vec3 origin = Vec3.atCenterOf(helper.absolutePos(centre));
+
+        helper.assertTrue(EventManager.start("meteor", level.getServer(), level, origin, null,
+                EventOptions.empty()), "meteor should start");
+        helper.assertValueEqual(EventManager.skip(), "flight", "skip leaves the countdown");
+        helper.assertValueEqual(EventManager.skip(), "impact", "skip leaves the flight");
+
+        // The crater is carved over four scheduled ticks and the chest goes down on the last one.
+        helper.runAfterDelay(20L, () -> {
+            helper.assertBlockPresent(Blocks.CHEST, centre);
+            helper.assertEntityNotPresent(EventsFeature.meteorType());
+
+            int air = 0;
+            for (int dx = -2; dx <= 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    BlockPos above = centre.offset(dx, 1, dz);
+                    if (level.getBlockState(helper.absolutePos(above)).isAir()) {
+                        air++;
+                    }
+                }
+            }
+            helper.assertTrue(air >= 20, "the crater should have been hollowed out, saw " + air
+                    + " air cells above the chest");
+
+            EventManager.stop(StopReason.STOPPED);
+            helper.succeed();
+        });
+    }
+
+    /**
+     * A siege actually puts a wave on the ground: tagged, persistent and countable. The old spawn
+     * finder trusted the surface heightmap alone, which underground or in the Nether put every wave
+     * out of reach and then marched the whole event through five "cleared" waves in 35 seconds with
+     * nothing on screen.
+     *
+     * <p>{@code radius=6} because the plan's default ring is 24-40 blocks and this arena is 9 wide;
+     * {@code bossbar=false} exercises the option at the same time.
+     */
+    public static void siegeSpawnsFirstWave(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Vec3 origin = Vec3.atCenterOf(helper.absolutePos(new BlockPos(4, 1, 4)));
+
+        helper.assertTrue(EventManager.start("siege", level.getServer(), level, origin, null,
+                        EventOptions.parse("waves=1 radius=6 bossbar=false")),
+                "siege should start");
+        helper.assertValueEqual(EventManager.currentPhase().id(), "prepare", "opening phase");
+
+        // prepare(60) has to run out before wave 1 spawns.
+        helper.runAfterDelay(80L, () -> {
+            List<Entity> wave = siegeMobs(level);
+            helper.assertTrue(!wave.isEmpty(),
+                    "wave 1 should have put mobs on the ground, saw none");
+            helper.assertValueEqual(EventManager.active().wave(), 1, "wave counter");
+            for (Entity entity : wave) {
+                helper.assertTrue(entity instanceof Mob mob && mob.isPersistenceRequired(),
+                        "every siege mob is persistent so it cannot despawn mid-take");
+            }
+
+            helper.assertTrue(EventManager.stop(StopReason.STOPPED), "siege should stop");
+            helper.assertTrue(siegeMobs(level).isEmpty(),
+                    "stopping a siege must take its whole wave with it");
+            helper.succeed();
+        });
+    }
+
+    /**
+     * {@code /event skip} on a blood moon brings the sun up. This is the 0:08 beat of the demo clip
+     * and it used to do nothing at all to the clock: the "fade" phase only drained the red out of
+     * the sky and left the world at 13 000 ticks with the moon still up.
+     */
+    public static void bloodMoonSkipBringsDawn(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Vec3 origin = Vec3.atCenterOf(helper.absolutePos(new BlockPos(1, 1, 1)));
+        level.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(true, level.getServer());
+        level.setDayTime(14000L);
+
+        helper.assertTrue(EventManager.start("bloodmoon", level.getServer(), level, origin, null,
+                EventOptions.empty()), "bloodmoon should start");
+        helper.assertValueEqual(EventManager.skip(), "night", "skip leaves the rise");
+        helper.assertValueEqual(EventManager.skip(), "fade", "skip leaves the night");
+
+        // The clock is lapsed over the 40-tick fade, then the event finishes.
+        helper.runAfterDelay(60L, () -> {
+            long timeOfDay = Math.floorMod(level.getDayTime(), 24000L);
+            helper.assertTrue(timeOfDay < 12000L,
+                    "skipping to the fade must bring dawn, day time was " + timeOfDay);
+            helper.assertValueEqual(EventManager.activeId(), "",
+                    "the fade is the last phase, so the event ends with it");
+            helper.assertTrue(EventHooks.spawnCapMultiplier(MobCategory.MONSTER) == 1.0F,
+                    "and the spawn cap goes back");
+            helper.succeed();
+        });
+    }
+
+    /** Everything alive in {@code level} that this feature's siege owns. */
+    private static List<Entity> siegeMobs(ServerLevel level) {
+        List<Entity> out = new ArrayList<>();
+        for (Entity entity : level.getAllEntities()) {
+            if (entity.isAlive() && entity.getTags().contains(EventHooks.TAG_SIEGE)) {
+                out.add(entity);
+            }
+        }
+        return out;
     }
 
     private EventsGameTests() {

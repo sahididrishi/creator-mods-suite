@@ -3,18 +3,23 @@ package dev.riftal.creator.features.rules.hooks;
 import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.features.rules.RuleManager;
 import dev.riftal.creator.features.rules.RulesFeature;
+import dev.riftal.creator.features.rules.RuleTags;
 import dev.riftal.creator.features.rules.preset.RulePresets;
+import dev.riftal.creator.features.rules.rules.HeartsCurrencyRule;
 import dev.riftal.creator.features.rules.rules.RandomItems;
 import dev.riftal.creator.features.rules.shop.ShopOffers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 
 import java.util.List;
 
@@ -42,11 +47,15 @@ public final class RuleHooks {
             return;
         }
         if (server != boundServer) {
-            boundServer = server;
             RandomItems.invalidate();
             ShopOffers.clear();
             RulePresets.clear();
-            RuleManager.start(server);
+            // Only latch once the engine really came up. start() gives up when the overworld is not
+            // built yet, and latching on a failed attempt left the whole feature dead for the
+            // session with no retry - every /rule answering "no world is loaded".
+            if (RuleManager.start(server)) {
+                boundServer = server;
+            }
         }
         RuleManager.tick();
     }
@@ -76,6 +85,53 @@ public final class RuleHooks {
             return;
         }
         RuleManager.onPlayerRespawn(player);
+    }
+
+    /** A player finished changing dimension; {@code player} is the same entity, moved. */
+    public static void onPlayerChangedDimension(ServerPlayer player) {
+        if (disabled() || player == null) {
+            return;
+        }
+        RuleManager.onPlayerChangedDimension(player);
+    }
+
+    /**
+     * An entity was added to a server level: a spawn, a spawn egg, a spawner, {@code /summon}. Not
+     * a chunk load - those never reach {@code addFreshEntity}.
+     */
+    public static void onEntityJoin(ServerLevel level, Entity entity) {
+        if (disabled() || level == null || entity == null) {
+            return;
+        }
+        RuleManager.onEntityJoin(level, entity);
+    }
+
+    /**
+     * A player right-clicked a block. The {@code hearts_currency} shop has a physical door as well
+     * as {@code /shop}: any block in {@code #creator_rules:shop_blocks} (emerald block by default)
+     * opens the same menu, which reads far better on camera than typing a command.
+     *
+     * <p>Sneaking is deliberately left alone so the block can still be built against, and only the
+     * main hand counts so the menu cannot be opened twice by one click.
+     *
+     * @return true when the shop was opened and vanilla's interaction must be cancelled
+     */
+    public static boolean onUseShopBlock(ServerPlayer player, Level level, InteractionHand hand,
+                                         BlockHitResult hitResult) {
+        if (disabled() || player == null || hitResult == null || hand != InteractionHand.MAIN_HAND) {
+            return false;
+        }
+        if (!(level instanceof ServerLevel serverLevel) || player.isSecondaryUseActive()) {
+            return false;
+        }
+        if (!RuleManager.isActive(HeartsCurrencyRule.ID)) {
+            return false;
+        }
+        if (!serverLevel.getBlockState(hitResult.getBlockPos()).is(RuleTags.SHOP_BLOCKS)) {
+            return false;
+        }
+        HeartsCurrencyRule.openShop(player);
+        return true;
     }
 
     /** A player's block break completed; the block is already out of the world. */

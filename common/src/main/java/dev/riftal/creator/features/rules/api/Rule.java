@@ -5,6 +5,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
@@ -54,12 +55,39 @@ public interface Rule {
     default void tick(RuleContext ctx) {
     }
 
+    /**
+     * Runs whatever this rule normally waits for a timer to do, right now, for every online player.
+     * Reached from {@code /rule <id> fire}, which exists so a 60-second rule can be filmed in one
+     * take instead of one minute.
+     *
+     * @return true when the rule actually did something; false (the default) when it has no
+     *         on-demand effect, which the command reports rather than pretending to have fired
+     */
+    default boolean fire(RuleContext ctx) {
+        return false;
+    }
+
     /** A player joined while the rule is active. Re-apply per-player effects. */
     default void onPlayerJoin(RuleContext ctx, ServerPlayer player) {
     }
 
     /** A player respawned: this is a brand-new entity, so per-player effects must be re-applied. */
     default void onPlayerRespawn(RuleContext ctx, ServerPlayer player) {
+    }
+
+    /**
+     * A player finished changing dimension (or was teleported within one). The move usually looks
+     * like a huge jump in position, so rules that watch movement have to be told about it.
+     */
+    default void onPlayerChangedDimension(RuleContext ctx, ServerPlayer player) {
+    }
+
+    /**
+     * An entity was just added to a server level - a natural spawn, a spawn egg, a spawner, a
+     * structure, {@code /summon}. Chunk loads do <em>not</em> come through here, which is why the
+     * rules that stamp something onto mobs also keep a slow sweep as a backstop.
+     */
+    default void onEntityJoin(RuleContext ctx, ServerLevel level, Entity entity) {
     }
 
     /**

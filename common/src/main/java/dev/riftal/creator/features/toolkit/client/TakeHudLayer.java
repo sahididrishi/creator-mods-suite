@@ -1,6 +1,5 @@
 package dev.riftal.creator.features.toolkit.client;
 
-import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.core.hud.HudLayer;
 import dev.riftal.creator.core.hud.HudLayers;
 import dev.riftal.creator.core.hud.HudText;
@@ -42,10 +41,13 @@ public final class TakeHudLayer implements HudLayer {
 
     @Override
     public void render(GuiGraphics graphics, DeltaTracker deltaTracker) {
-        if (!CreatorMods.isEnabled(ToolkitFeature.ID)) {
+        if (!ToolkitFeature.enabled()) {
             return;
         }
-        ClientToolkitState.requestSyncIfNeeded();
+        // Only a fallback: the join sync and the mark key are driven by the loader's client-tick
+        // event. They must not depend on this method, because NeoForge puts our layer inside Gui's
+        // LayeredDraw, which vanilla skips entirely while options.hideGui is set.
+        ToolkitClient.tickIfNotWired();
         if (HudLayers.hudHidden()) {
             return;
         }

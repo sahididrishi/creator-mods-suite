@@ -32,6 +32,6 @@
   "commands.creator_powers.ready": "ready",
   "commands.creator_powers.ticks": "%st",
   "commands.creator_powers.slots_full": "All %s slots are full; use /power remove first",
-  "commands.creator_powers.unknown_ability": "Unknown ability. Known: %s",
+  "commands.creator_powers.unknown_ability": "Unknown ability '%s'. Known: %s",
   "commands.creator_powers.bad_hud_mode": "Unknown HUD mode '%s'; expected on, off, radial or linear"
 }

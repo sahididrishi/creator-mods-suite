@@ -13,6 +13,7 @@ import dev.riftal.creator.features.colossus.arena.ArenaSavedData;
 import dev.riftal.creator.features.colossus.client.AshBombRenderer;
 import dev.riftal.creator.features.colossus.client.ColossusHud;
 import dev.riftal.creator.features.colossus.client.ColossusRenderer;
+import dev.riftal.creator.features.colossus.client.ColossusScreenShake;
 import dev.riftal.creator.features.colossus.client.MinionRenderer;
 import dev.riftal.creator.features.colossus.command.ColossusCommand;
 import dev.riftal.creator.features.colossus.entity.AshBombEntity;
@@ -175,6 +176,9 @@ public final class ColossusFeature implements Feature {
         ClientRenderers.entityRenderer(minion, MinionRenderer::new);
         ClientRenderers.entityRenderer(ashBomb, AshBombRenderer::new);
         ColossusHud.register(rl("ring"));
+        // The only place in this feature that names the camera-shake class. The payload itself is
+        // registered on both sides in registerContent() and must stay free of client types.
+        ScreenShakePayload.installClientHandler(ColossusScreenShake::begin);
     }
 
     // ------------------------------------------------------------------ accessors

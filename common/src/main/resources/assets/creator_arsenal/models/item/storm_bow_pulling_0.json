@@ -1,0 +1,6 @@
+{
+  "parent": "creator_arsenal:item/storm_bow",
+  "textures": {
+    "layer0": "creator_arsenal:item/storm_bow_pulling_0"
+  }
+}

@@ -59,6 +59,9 @@ public final class MeteorEvent implements WorldEvent {
     private static final float EXPLOSION_RADIUS = 6.0F;
     private static final int CRATER_RADIUS = 5;
 
+    /** Ticks the crater carve is spread over. */
+    private static final int CARVE_SLICES = 4;
+
     /** The chest's loot table, filled by {@code data/creator_events/loot_table/meteor.json}. */
     public static final ResourceKey<LootTable> METEOR_LOOT =
             ResourceKey.create(Registries.LOOT_TABLE,
@@ -224,7 +227,14 @@ public final class MeteorEvent implements WorldEvent {
         entity.setDeltaMovement(spawn.velocity());
         level.addFreshEntity(entity);
         meteorId = entity.getUUID();
-        Fx.sound(level, start, EventsFeature.meteorWhistle(), SoundSource.HOSTILE, 3.0F, 1.0F);
+        // Not at `start`: the boulder spawns 82 blocks up-range (|SPAWN_OFFSET| = sqrt(40^2+60^2+40^2))
+        // and a variable-range sound event at volume 3 only carries 16*3 = 48 blocks, so a whistle
+        // played there is dropped by PlayerList#broadcast before it reaches anybody. Played at each
+        // listener instead, so the howl lands however the shot is framed.
+        for (ServerPlayer player : ctx.players()) {
+            Fx.sound(level, player.position(), EventsFeature.meteorWhistle(), SoundSource.HOSTILE,
+                    1.0F, 1.0F);
+        }
     }
 
     private void flight(EventContext ctx) {
@@ -272,25 +282,47 @@ public final class MeteorEvent implements WorldEvent {
         Fx.sound(level, target, EventsFeature.meteorImpact(), SoundSource.HOSTILE, 4.0F, 0.8F);
         Fx.particles(level, ParticleTypes.EXPLOSION_EMITTER, target, 6, 3.0D, 0.0D);
 
-        // One tick later, so the explosion cannot eat the chest we are about to place.
-        TickScheduler.runLater(1, () -> carveCrater(level, centre)).tag(EventManager.tag("meteor"));
+        // One tick later, so the explosion cannot eat the chest we are about to place, and then
+        // spread across CARVE_SLICES ticks: ~515 air blocks plus ~258 rim blocks in a single tick,
+        // on top of a radius-6 TNT explosion the tick before, is the worst possible frame to hitch
+        // on - it is the frame the viewer is looking at.
+        scheduleCarve(level, centre);
     }
 
-    private void carveCrater(ServerLevel level, BlockPos centre) {
+    private void scheduleCarve(ServerLevel level, BlockPos centre) {
+        List<CraterShape.Offset> inside = CraterShape.inside(CRATER_RADIUS);
+        List<CraterShape.Offset> rim = CraterShape.rim(CRATER_RADIUS);
+        int[] slice = {0};
+        TickScheduler.runRepeating(1, CARVE_SLICES, () -> {
+            int index = slice[0]++;
+            carveSlice(level, centre, inside, rim, index);
+            if (index == CARVE_SLICES - 1) {
+                placeChest(level, centre);
+            }
+        }).tag(EventManager.tag("meteor"));
+    }
+
+    /** One of {@link #CARVE_SLICES} equal strides through the crater's cells. */
+    private void carveSlice(ServerLevel level, BlockPos centre, List<CraterShape.Offset> inside,
+                            List<CraterShape.Offset> rim, int slice) {
         RandomSource random = level.getRandom();
-        for (CraterShape.Offset offset : CraterShape.inside(CRATER_RADIUS)) {
+        int floor = level.getMinBuildHeight() + 1;
+        for (int i = slice; i < inside.size(); i += CARVE_SLICES) {
+            CraterShape.Offset offset = inside.get(i);
             BlockPos pos = centre.offset(offset.x(), offset.y(), offset.z());
-            if (pos.getY() <= level.getMinBuildHeight() + 1) {
+            if (pos.getY() <= floor) {
                 continue;
             }
             level.setBlock(pos, Blocks.AIR.defaultBlockState(), 2);
         }
-        for (CraterShape.Offset offset : CraterShape.rim(CRATER_RADIUS)) {
+        for (int i = slice; i < rim.size(); i += CARVE_SLICES) {
+            CraterShape.Offset offset = rim.get(i);
             BlockPos pos = centre.offset(offset.x(), offset.y(), offset.z());
-            if (pos.getY() <= level.getMinBuildHeight() + 1) {
+            if (pos.getY() <= floor) {
                 continue;
             }
-            if (level.getBlockState(pos.below()).isAir() && level.getBlockState(pos).isAir()) {
+            BlockState here = level.getBlockState(pos);
+            if (here.isAir() && level.getBlockState(pos.below()).isAir()) {
                 continue;
             }
             int roll = random.nextInt(10);
@@ -298,13 +330,16 @@ public final class MeteorEvent implements WorldEvent {
                     ? Blocks.MAGMA_BLOCK.defaultBlockState()
                     : (roll < 7 ? Blocks.NETHERRACK.defaultBlockState()
                     : Blocks.BLACKSTONE.defaultBlockState());
-            level.setBlock(pos, scorched, 3);
+            level.setBlock(pos, scorched, 2);
             if (offset.y() >= 0 && random.nextFloat() < 0.3F
                     && level.getBlockState(pos.above()).isAir()) {
                 level.setBlock(pos.above(), Blocks.FIRE.defaultBlockState(), 3);
             }
         }
+    }
 
+    private void placeChest(ServerLevel level, BlockPos centre) {
+        RandomSource random = level.getRandom();
         level.setBlock(centre, Blocks.AIR.defaultBlockState(), 3);
         level.setBlock(centre.below(), Blocks.BLACKSTONE.defaultBlockState(), 3);
         level.setBlock(centre, Blocks.CHEST.defaultBlockState(), 3);

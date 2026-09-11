@@ -102,4 +102,34 @@ public class VaultFabricGameTests implements FabricGameTest {
     public void commandResetReArmsTheNearestAltar(GameTestHelper helper) {
         VaultGameTests.commandResetReArmsTheNearestAltar(helper);
     }
+
+    @GameTest(template = EMPTY, timeoutTicks = 200, batch = "creator_vault_tether")
+    public void keeperIsTetheredEvenWhileChasingSomething(GameTestHelper helper) {
+        VaultGameTests.keeperIsTetheredEvenWhileChasingSomething(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 300, batch = "creator_vault_stray_keeper")
+    public void aStrayKeeperCannotUnsealTheChest(GameTestHelper helper) {
+        VaultGameTests.aStrayKeeperCannotUnsealTheChest(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 200, batch = "creator_vault_adopt_swap")
+    public void adoptingASecondKeeperRetiresTheFirst(GameTestHelper helper) {
+        VaultGameTests.adoptingASecondKeeperRetiresTheFirst(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 200, batch = "creator_vault_reset_sweep")
+    public void resetSweepsAKeeperTheAltarHasForgotten(GameTestHelper helper) {
+        VaultGameTests.resetSweepsAKeeperTheAltarHasForgotten(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 100, batch = "creator_vault_orphan_unseal")
+    public void unsealWithoutAnAltarStillOpensTheChests(GameTestHelper helper) {
+        VaultGameTests.unsealWithoutAnAltarStillOpensTheChests(helper);
+    }
+
+    @GameTest(template = EMPTY, timeoutTicks = 200, batch = "creator_vault_loot_override")
+    public void resetKeepsAPerChestLootTableOverride(GameTestHelper helper) {
+        VaultGameTests.resetKeepsAPerChestLootTableOverride(helper);
+    }
 }

@@ -38,6 +38,13 @@ import java.util.UUID;
  * <p>The player's stage is written into the attachment at tick 0, not at the end. If the player
  * dies, relogs or changes dimension mid-sequence the stage is already banked, so the heartbeat in
  * {@code EvolveServerHooks} only has to finish the job - and {@link #finish} is idempotent.
+ *
+ * <p><b>Two scheduler tags, deliberately.</b> A real sequence owns
+ * {@code creator_evolve:transform/&lt;uuid&gt;} (the spiral <em>and</em> the finish task); the b-roll
+ * {@code /evolve fx} owns {@code creator_evolve:broll/&lt;uuid&gt;} and nothing else. They were one tag
+ * once, and {@code /evolve fx start} on a mid-transformation player cancelled the finish task -
+ * which left the target locked at movement speed 0 with {@code transforming=true} until they
+ * relogged. Keep them apart.
  */
 public final class Transformation {
 
@@ -74,6 +81,7 @@ public final class Transformation {
         long endTick = player.level().getGameTime() + duration;
 
         cancelTasks(player.getUUID());
+        cancelFxTasks(player.getUUID());
         EvolutionData banked = EvolveManager.data(player).withStage(target).withTransform(true, endTick);
         EvolveManager.setData(player, banked);
 
@@ -88,7 +96,7 @@ public final class Transformation {
                 TransformFxPayload.start(player.getUUID(), duration, target));
         EvolveManager.sync(player);
 
-        scheduleFx(player.getUUID(), duration);
+        scheduleFx(player.getUUID(), duration, tagFor(player.getUUID()));
         scheduleFinish(player.getUUID(), duration);
 
         LOG.info("[evolve] {} is transforming into stage {} over {} ticks",
@@ -109,7 +117,7 @@ public final class Transformation {
         StageModifiers.lockMovement(player);
         Payloads.sendToTracking(player,
                 TransformFxPayload.start(player.getUUID(), remaining, state.stage()));
-        scheduleFx(player.getUUID(), remaining);
+        scheduleFx(player.getUUID(), remaining, tagFor(player.getUUID()));
         scheduleFinish(player.getUUID(), remaining);
     }
 
@@ -141,13 +149,23 @@ public final class Transformation {
         Fx.sound(player.level(), player.position(), EvolveFeature.evolveComplete(),
                 SoundSource.PLAYERS, 0.8F, 1.0F);
 
-        Titles.show(player,
-                Component.translatable("title.creator_evolve.stage", stage.ordinal())
-                        .withStyle(ChatFormatting.BOLD),
-                Component.translatable(stage.nameKey()),
-                5, 40, 10);
+        if (player.connection != null) {
+            // A player who is being disconnected this very tick has no packet listener left. One
+            // NPE here used to spend the heartbeat's three-strike failure budget and take the whole
+            // feature down for the rest of the session.
+            Titles.show(player,
+                    Component.translatable("title.creator_evolve.stage", stage.ordinal())
+                            .withStyle(ChatFormatting.BOLD),
+                    Component.translatable(stage.nameKey()),
+                    5, 40, 10);
+        }
 
         Payloads.sendToTracking(player, TransformFxPayload.stop(player.getUUID(), stage.ordinal()));
+        if (stage.isFinal()) {
+            // The beast lands roaring: every tracker's proxy plays animation.apex.roar once.
+            Payloads.sendToTracking(player,
+                    TransformFxPayload.roar(player.getUUID(), stage.ordinal()));
+        }
         EvolveManager.sync(player);
 
         LOG.info("[evolve] {} is now stage {} ({})", player.getGameProfile().getName(),
@@ -162,11 +180,16 @@ public final class Transformation {
     }
 
     /**
-     * Stops a running sequence without applying it - used by {@code /evolve set} and
-     * {@code /evolve reset}, which write the body themselves.
+     * Stops a running sequence without applying it. The stage banked at tick 0 is <em>left</em> in
+     * the attachment and the body is <em>not</em> written, so the only two callers are
+     * {@code EvolveManager.setStage} and {@code EvolveManager.reset}, both of which write the body
+     * immediately afterwards. Do not add a third: {@code /evolve fx stop} used to route through
+     * here and left the player's data on stage N+1 while their attributes were still stage N's.
+     * B-roll cancels go through {@link #stopFxOnly} instead.
      */
     public static void abort(ServerPlayer player) {
         cancelTasks(player.getUUID());
+        cancelFxTasks(player.getUUID());
         StageModifiers.unlockMovement(player);
         EvolutionData state = EvolveManager.data(player);
         if (state.transforming()) {
@@ -178,27 +201,58 @@ public final class Transformation {
         }
     }
 
-    /** Plays the sequence's fx without changing anything. For b-roll: {@code /evolve fx}. */
-    public static void playFxOnly(ServerPlayer player, int ticks) {
+    /**
+     * Plays the sequence's fx without changing anything. For b-roll: {@code /evolve fx start}.
+     *
+     * <p>Refuses outright while a real transformation is running on that player: the b-roll take is
+     * never worth stepping on a live sequence, and the fx would be indistinguishable anyway.
+     *
+     * @return true when the b-roll actually started
+     */
+    public static boolean playFxOnly(ServerPlayer player, int ticks) {
+        if (!EvolveFeature.isReady() || EvolveManager.data(player).transforming()) {
+            return false;
+        }
         int duration = Math.max(1, Math.min(400, ticks));
-        cancelTasks(player.getUUID());
+        cancelFxTasks(player.getUUID());
         Fx.sound(player.level(), player.position(), SoundEvents.RESPAWN_ANCHOR_CHARGE,
                 SoundSource.PLAYERS, 1.0F, 0.7F);
         Payloads.sendToTracking(player, TransformFxPayload.start(player.getUUID(), duration,
                 EvolveManager.data(player).stage()));
-        scheduleFx(player.getUUID(), duration);
+        scheduleFx(player.getUUID(), duration, fxTagFor(player.getUUID()));
         TickScheduler.runLater(duration, () -> {
             ServerPlayer target = resolve(player.getUUID());
             if (target != null) {
-                Payloads.sendToTracking(target, TransformFxPayload.stop(target.getUUID(),
-                        EvolveManager.data(target).stage()));
+                stopFxOnly(target);
             }
-        }).tag(tagFor(player.getUUID()));
+        }).tag(fxTagFor(player.getUUID()));
+        return true;
     }
 
-    /** Cancels every scheduled task belonging to one player's sequence. */
+    /**
+     * Ends a {@code /evolve fx start} take. Touches the b-roll tag and nothing else, so it is safe
+     * to fire at a player who happens to be mid-transformation: their spiral, their finish task and
+     * their movement lock are all on the other tag and are left exactly where they were.
+     */
+    public static void stopFxOnly(ServerPlayer player) {
+        cancelFxTasks(player.getUUID());
+        if (!EvolveFeature.isReady() || EvolveManager.data(player).transforming()) {
+            // A real sequence owns the client's flash right now. Cutting it short here would blank
+            // the HUD readout half way through a take.
+            return;
+        }
+        Payloads.sendToTracking(player,
+                TransformFxPayload.stop(player.getUUID(), EvolveManager.data(player).stage()));
+    }
+
+    /** Cancels every scheduled task belonging to one player's real sequence. */
     public static void cancelTasks(UUID playerId) {
         TickScheduler.cancelAll(tagFor(playerId));
+    }
+
+    /** Cancels one player's b-roll fx tasks, leaving any real sequence alone. */
+    public static void cancelFxTasks(UUID playerId) {
+        TickScheduler.cancelAll(fxTagFor(playerId));
     }
 
     private static void scheduleFinish(UUID playerId, int duration) {
@@ -210,7 +264,7 @@ public final class Transformation {
         }).tag(tagFor(playerId));
     }
 
-    private static void scheduleFx(UUID playerId, int duration) {
+    private static void scheduleFx(UUID playerId, int duration, ResourceLocation tag) {
         int steps = Math.max(1, duration / FX_PERIOD);
         int[] step = {0};
         TickScheduler.runRepeating(FX_PERIOD, steps, task -> {
@@ -226,7 +280,7 @@ public final class Transformation {
                 Fx.sound(level, player.position(), SoundEvents.AMETHYST_BLOCK_CHIME,
                         SoundSource.PLAYERS, 0.6F, 0.8F + progress * 0.6F);
             }
-        }).tag(tagFor(playerId));
+        }).tag(tag);
     }
 
     private static void emitSpiral(ServerLevel level, ServerPlayer player, int index, float progress) {
@@ -249,8 +303,14 @@ public final class Transformation {
         return server == null ? null : server.getPlayerList().getPlayer(playerId);
     }
 
+    /** Scheduler tag for a real transformation: the spiral <em>and</em> the finish task. */
     private static ResourceLocation tagFor(UUID playerId) {
         return EvolveFeature.id("transform/" + playerId);
+    }
+
+    /** Scheduler tag for {@code /evolve fx} b-roll. Never carries a finish task. */
+    private static ResourceLocation fxTagFor(UUID playerId) {
+        return EvolveFeature.id("broll/" + playerId);
     }
 
     private Transformation() {

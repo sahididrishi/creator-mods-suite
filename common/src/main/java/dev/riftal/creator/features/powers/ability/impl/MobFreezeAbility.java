@@ -16,6 +16,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.monster.Enemy;
 
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -33,6 +34,16 @@ public final class MobFreezeAbility implements Ability {
 
     /** Hard cap so a mob-farm-sized crowd cannot make one keypress cost a tick. */
     private static final int MAX_TARGETS = 64;
+
+    /**
+     * How many of the frozen mobs get their own positional freeze sound.
+     *
+     * <p>Every {@code Fx.sound} is one packet to every player in range and one more voice in the
+     * mix; 64 overlapping {@code GLASS_BREAK} instances in a single tick is a wall of noise on the
+     * recording and 64 packets nobody can hear individually. The snowflakes stay per mob - they are
+     * the thing the shot is actually about.
+     */
+    private static final int MAX_FREEZE_SOUNDS = 3;
 
     @Override
     public String path() {
@@ -58,15 +69,21 @@ public final class MobFreezeAbility implements Ability {
         List<Mob> targets = Selection.around(level, Mob.class, player.position(), RADIUS,
                 mob -> mob instanceof Enemy && mob.isAlive() && !AbilityFx.isBoss(mob));
 
+        // Nearest first, so the handful of mobs that do get their own crack of ice are the ones
+        // closest to the camera.
+        targets.sort(Comparator.comparingDouble(mob -> mob.distanceToSqr(player)));
+
         int frozen = 0;
         for (Mob mob : targets) {
             if (frozen >= MAX_TARGETS) {
                 break;
             }
-            ActiveEffects.freeze(mob, until);
+            ActiveEffects.freeze(mob, until, player.getUUID());
             Fx.particles(level, ParticleTypes.SNOWFLAKE,
                     mob.position().add(0.0D, mob.getBbHeight() * 0.5D, 0.0D), 30, 0.45D, 0.02D);
-            Fx.sound(level, mob.position(), SoundEvents.GLASS_BREAK, SoundSource.HOSTILE, 0.5F, 1.6F);
+            if (frozen < MAX_FREEZE_SOUNDS) {
+                Fx.sound(level, mob.position(), SoundEvents.GLASS_BREAK, SoundSource.HOSTILE, 0.5F, 1.6F);
+            }
             frozen++;
         }
 
@@ -74,7 +91,7 @@ public final class MobFreezeAbility implements Ability {
         Fx.sound(level, player.position(), SoundEvents.GLASS_BREAK, SoundSource.PLAYERS, 0.9F, 0.7F);
     }
 
-    /** Freeze duration in ticks. Read by the commands and the GameTests. */
+    /** Freeze duration in ticks. Read by the GameTests, so they never hard-code the timer. */
     public static int durationTicks() {
         return DURATION_TICKS;
     }

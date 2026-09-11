@@ -111,4 +111,29 @@ public class ColossusFabricGameTests implements FabricGameTest {
     public void nbtRoundTripKeepsTheArenaAndPhase(GameTestHelper helper) {
         ColossusGameTests.nbtRoundTripKeepsTheArenaAndPhase(helper);
     }
+
+    @GameTest(template = ARENA, timeoutTicks = 200)
+    public void theChooserRunsARealAttackEndToEnd(GameTestHelper helper) {
+        ColossusGameTests.theChooserRunsARealAttackEndToEnd(helper);
+    }
+
+    @GameTest(template = ARENA)
+    public void commandsResolveTheNearestBoss(GameTestHelper helper) {
+        ColossusGameTests.commandsResolveTheNearestBoss(helper);
+    }
+
+    @GameTest(template = ARENA)
+    public void theFightLeavesACreativeCameraAlone(GameTestHelper helper) {
+        ColossusGameTests.theFightLeavesACreativeCameraAlone(helper);
+    }
+
+    @GameTest(template = ARENA, timeoutTicks = 200)
+    public void rebindingTheArenaRestartsTheRing(GameTestHelper helper) {
+        ColossusGameTests.rebindingTheArenaRestartsTheRing(helper);
+    }
+
+    @GameTest(template = ARENA, timeoutTicks = 200)
+    public void deathExtinguishesTheFirePatches(GameTestHelper helper) {
+        ColossusGameTests.deathExtinguishesTheFirePatches(helper);
+    }
 }

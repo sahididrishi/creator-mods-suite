@@ -7,6 +7,7 @@ import dev.riftal.creator.features.evolve.entity.ApexBeast;
 import dev.riftal.creator.features.evolve.event.EvolveServerHooks;
 import dev.riftal.creator.features.evolve.net.XpPopupPayload;
 import dev.riftal.creator.features.evolve.perk.StagePerks;
+import dev.riftal.creator.features.evolve.perk.impl.ChargePerk;
 import dev.riftal.creator.features.evolve.progression.EvolveManager;
 import dev.riftal.creator.features.evolve.progression.Transformation;
 import dev.riftal.creator.features.evolve.stage.EvolutionStage;
@@ -17,6 +18,8 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.PlayerList;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Zombie;
@@ -342,6 +345,185 @@ public final class EvolveGameTests {
             release(helper, player);
             helper.succeed();
         });
+    }
+
+    /**
+     * The hitbox of the {@code /summon}able beast has to be the height of the authored mesh. The
+     * same constant is the divisor {@code PlayerRenderSwap} scales by, so a mesh that overshoots it
+     * puts the beast's head out of its own box and out of the player hitbox it stands in for.
+     * {@code EvolveAssetsTest} asserts the shipped geometry from the other side.
+     */
+    public static void apexBeastHitboxMatchesTheMesh(GameTestHelper helper) {
+        EntityType<ApexBeast> type = EvolveFeature.apexBeast().get();
+        assertClose(helper, type.getHeight(), ApexBeast.MODEL_HEIGHT, "apex beast hitbox height");
+        assertClose(helper, type.getWidth(), ApexBeast.MODEL_WIDTH, "apex beast hitbox width");
+        helper.succeed();
+    }
+
+    /**
+     * The way out of the feature. Stage modifiers are permanent, so they outlive the feature being
+     * switched off in the config - {@code EvolveAttributeMapMixin} calls this on the vanilla
+     * attribute load path when {@code evolve} is disabled, and it has to leave a plain vanilla
+     * player behind.
+     */
+    public static void strippingUndoesEveryStageModifier(GameTestHelper helper) {
+        Player player = helper.makeMockPlayer(GameType.SURVIVAL);
+
+        StageModifiers.apply(player, Stages.APEX);
+        StageModifiers.lockMovement(player);
+        assertClose(helper, player.getAttributeValue(Attributes.SCALE), 2.6D, "scale at Apex");
+
+        int removed = StageModifiers.stripFrom(player.getAttributes());
+        helper.assertTrue(removed > 0, "stripFrom should have found modifiers to remove");
+
+        assertClose(helper, player.getAttributeValue(Attributes.SCALE), 1.0D, "scale after stripping");
+        assertClose(helper, player.getAttributeValue(Attributes.MAX_HEALTH), 20.0D,
+                "max health after stripping");
+        helper.assertFalse(StageModifiers.isMovementLocked(player),
+                "the transformation lock has to go too, or a crash mid-sequence is permanent");
+        for (var modifierId : StageModifiers.ALL_IDS) {
+            helper.assertFalse(player.getAttribute(Attributes.SCALE).hasModifier(modifierId),
+                    modifierId + " survived the strip");
+        }
+
+        helper.assertValueEqual(StageModifiers.stripFrom(player.getAttributes()), 0,
+                "stripping twice must find nothing the second time");
+        helper.succeed();
+    }
+
+    /**
+     * {@code /evolve fx start} on a player who is genuinely mid-transformation must be refused. It
+     * used to share a scheduler tag with the real sequence, so it cancelled the finish task and
+     * left the target pinned at movement speed 0 with {@code transforming=true} until they relogged.
+     */
+    public static void brollFxNeverCancelsALiveTransformation(GameTestHelper helper) {
+        ServerPlayer player = spawnPlayer(helper, new Vec3(4.5D, 2.0D, 4.5D));
+        EvolveManager.setStage(player, 1, true);
+        EvolveManager.setStage(player, 2, false);
+
+        helper.assertTrue(EvolveFeature.data().get(player).transforming(),
+                "the sequence should be running");
+        helper.assertFalse(Transformation.playFxOnly(player, 200),
+                "b-roll fx must refuse a player who is mid-transformation");
+        helper.assertTrue(EvolveFeature.data().get(player).transforming(),
+                "and must not have ended the sequence");
+        helper.assertTrue(StageModifiers.isMovementLocked(player),
+                "and must not have dropped the movement lock");
+
+        helper.runAfterDelay(Transformation.TICKS + 10L, () -> {
+            EvolutionData landed = EvolveFeature.data().get(player);
+            helper.assertFalse(landed.transforming(),
+                    "the finish task must still have been there to run");
+            helper.assertFalse(StageModifiers.isMovementLocked(player),
+                    "a b-roll command must never leave a player frozen");
+            assertClose(helper, player.getScale(), Stages.RUNT.scaleMultiplier(),
+                    "and the body must have landed");
+            release(helper, player);
+            helper.succeed();
+        });
+    }
+
+    /**
+     * {@code /evolve fx stop} used to run through {@code Transformation.abort}, which clears the
+     * transforming flag without writing the body - so the player's data said stage N+1 while their
+     * attributes were still stage N's, and nothing would ever fix it. It now only touches the
+     * b-roll tag.
+     */
+    public static void fxStopLeavesALiveSequenceAlone(GameTestHelper helper) {
+        ServerPlayer player = spawnPlayer(helper, new Vec3(4.5D, 2.0D, 4.5D));
+        EvolveManager.setStage(player, 1, true);
+        EvolveManager.setStage(player, 3, false);
+
+        Transformation.stopFxOnly(player);
+
+        EvolutionData during = EvolveFeature.data().get(player);
+        helper.assertTrue(during.transforming(), "fx stop must not end a real sequence");
+        helper.assertTrue(StageModifiers.isMovementLocked(player),
+                "fx stop must not drop a real sequence's movement lock");
+
+        helper.runAfterDelay(Transformation.TICKS + 10L, () -> {
+            EvolutionData landed = EvolveFeature.data().get(player);
+            helper.assertFalse(landed.transforming(), "the sequence should still have finished");
+            helper.assertValueEqual(landed.stage(), 3, "on the banked stage");
+            assertClose(helper, player.getScale(), Stages.BRUTE.scaleMultiplier(),
+                    "wearing the body that stage asks for, not the one before it");
+            release(helper, player);
+            helper.succeed();
+        });
+    }
+
+    /**
+     * Death and respawn, the one MVP-critical path with no coverage before. Two things have to
+     * survive it: the attachment (which {@code copyOnDeath} handles) and the attribute modifiers
+     * (which vanilla deliberately does <em>not</em> copy on the death path, so the heartbeat has to
+     * spot the new {@code ServerPlayer} and put the body back).
+     *
+     * <p>Note that {@code PlayerList#respawn} ends with {@code setId(player.getId())}: the respawned
+     * player carries the <em>old</em> entity id, which is exactly why the heartbeat cannot identify
+     * a player by entity id alone.
+     */
+    public static void deathKeepsTheStageAndTheBodyComesBack(GameTestHelper helper) {
+        ServerPlayer player = spawnPlayer(helper, new Vec3(4.5D, 2.0D, 4.5D));
+        EvolveManager.setStage(player, 4, true);
+        assertClose(helper, player.getScale(), Stages.TITAN.scaleMultiplier(), "scale before dying");
+
+        PlayerList list = helper.getLevel().getServer().getPlayerList();
+        ServerPlayer respawned = list.respawn(player, false, Entity.RemovalReason.KILLED);
+        helper.assertTrue(respawned != player, "respawn should hand back a new ServerPlayer");
+        helper.assertValueEqual(respawned.getId(), player.getId(),
+                "vanilla gives the respawned player the old entity id - the heartbeat must not "
+                        + "rely on that id to spot them");
+        helper.assertValueEqual(EvolveFeature.data().get(respawned).stage(), 4,
+                "the attachment is copyOnDeath");
+
+        // The live heartbeat runs every five ticks; give it a couple of passes to notice.
+        EvolveServerHooks.forgetAll();
+        helper.runAfterDelay(StagePerks.TICK_PERIOD * 3L, () -> {
+            EvolveServerHooks.heartbeat();
+            helper.assertValueEqual(EvolveFeature.data().get(respawned).stage(), 4,
+                    "stage after respawn");
+            assertClose(helper, respawned.getAttributeValue(Attributes.SCALE),
+                    Stages.TITAN.scaleMultiplier(), "scale after respawn");
+            assertClose(helper, respawned.getAttributeValue(Attributes.MAX_HEALTH), 35.0D,
+                    "max health after respawn");
+            release(helper, respawned);
+            helper.succeed();
+        });
+    }
+
+    /**
+     * The Brute's charge: the plan asks for "+4 dmg and knockback 1.5" on a sprint hit, not the
+     * Strength I while sprinting this used to be. The damage is written at the head of
+     * {@code Player#attack}, one instruction before vanilla reads the attribute.
+     */
+    public static void sprintHitsCarryTheChargeBonus(GameTestHelper helper) {
+        ServerPlayer player = spawnPlayer(helper, new Vec3(4.5D, 2.0D, 4.5D));
+        EvolveManager.setStage(player, 3, true);
+        double base = player.getAttributeValue(Attributes.ATTACK_DAMAGE);
+
+        Zombie zombie = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(2, 2, 2));
+
+        player.setSprinting(false);
+        helper.assertFalse(StagePerks.onAttack(player, EvolveFeature.data().get(player), zombie),
+                "a walking Brute gets no charge");
+        assertClose(helper, player.getAttributeValue(Attributes.ATTACK_DAMAGE), base,
+                "and no extra damage");
+
+        player.setSprinting(true);
+        helper.assertTrue(StagePerks.onAttack(player, EvolveFeature.data().get(player), zombie),
+                "a sprinting Brute charges");
+        assertClose(helper, player.getAttributeValue(Attributes.ATTACK_DAMAGE),
+                base + ChargePerk.BONUS_DAMAGE, "sprint damage bonus");
+
+        // Stopping the sprint has to take it away again on the next heartbeat.
+        player.setSprinting(false);
+        StagePerks.tick(player, EvolveFeature.data().get(player));
+        assertClose(helper, player.getAttributeValue(Attributes.ATTACK_DAMAGE), base,
+                "the bonus must not outlive the sprint");
+        helper.assertFalse(ChargePerk.isCharged(player), "and the modifier must be gone");
+
+        release(helper, player);
+        helper.succeed();
     }
 
     /**

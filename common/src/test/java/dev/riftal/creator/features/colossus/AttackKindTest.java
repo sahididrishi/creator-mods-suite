@@ -122,6 +122,17 @@ class AttackKindTest {
         }
     }
 
+    /** The NBT form of the attack history, which survives a relog. */
+    @Test
+    void namesRoundTripThroughNbt() {
+        for (AttackKind kind : AttackKind.values()) {
+            assertSame(kind, AttackKind.byName(kind.name()), kind.name());
+        }
+        // A tag written by another build must load as "no history", not blow up the world load.
+        assertSame(AttackKind.NONE, AttackKind.byName("SOMETHING_ELSE"));
+        assertSame(AttackKind.NONE, AttackKind.byName(""));
+    }
+
     @Test
     void idleHasNoTimelineAtAll() {
         assertEquals(0, AttackKind.NONE.durationTicks());

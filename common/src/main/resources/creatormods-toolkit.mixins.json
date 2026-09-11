@@ -9,8 +9,7 @@
   ],
   "client": [
     "ToolkitChatComponentMixin",
-    "ToolkitEntityRendererMixin",
-    "ToolkitKeyboardHandlerMixin"
+    "ToolkitEntityRendererMixin"
   ],
   "server": [],
   "injectors": {

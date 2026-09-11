@@ -68,6 +68,19 @@ STONE = {
     "ash": (134, 132, 138, 255),
 }
 
+# Phase 3 "enraged" crust. The plan's beat is "the Colossus' cracks glow red-hot", and a
+# two-value hue shift on the crack pixels alone is invisible past about four blocks, so the
+# whole rock is re-coloured as well: scorched red-brown instead of cold grey, with wider and
+# denser veins. Still flat and banded - still obviously a placeholder - but it reads as a
+# different creature from across the arena, which is the only thing the shot needs.
+STONE_RAGE = {
+    "edge": (30, 13, 11, 255),
+    "dark": (60, 29, 24, 255),
+    "base": (92, 45, 36, 255),
+    "light": (120, 60, 46, 255),
+    "ash": (156, 80, 58, 255),
+}
+
 MINION_STONE = {
     "edge": (20, 16, 14, 255),
     "dark": (48, 40, 34, 255),
@@ -141,8 +154,12 @@ def faces(u, v, w, h, d):
 # --------------------------------------------------------------------------- painting
 
 
-def paint_face(base, glow, rect, palette, crack, crack_hot, role, face):
-    """Fills one face rectangle: banded stone, a dark border, and a few lit cracks."""
+def paint_face(base, glow, rect, palette, crack, crack_hot, role, face, enraged=False):
+    """Fills one face rectangle: banded stone, a dark border, and a few lit cracks.
+
+    `enraged` widens every vein to two pixels and adds a third crack column on the wide
+    faces, so the phase 3 variant differs from the calm one in silhouette as well as in hue.
+    """
     _, x0, y0, fw, fh = rect
     factor = FACE_SHADE[face]
 
@@ -171,17 +188,21 @@ def paint_face(base, glow, rect, palette, crack, crack_hot, role, face):
     # Cracks: fixed zig-zag columns, so the art is reproducible and reads as veins rather
     # than as noise. Only the big surfaces get them; a 2px limb face has no room.
     if fw >= 6 and fh >= 6:
-        columns = [fw // 4, (3 * fw) // 4] if fw >= 12 else [fw // 2]
+        if fw >= 12:
+            columns = [fw // 4, fw // 2, (3 * fw) // 4] if enraged else [fw // 4, (3 * fw) // 4]
+        else:
+            columns = [fw // 2]
         for col in columns:
             x = col
             for y in range(2, fh - 2):
                 x += 1 if (y // 2) % 2 == 0 else -1
                 x = max(2, min(fw - 3, x))
-                hot = (y % 5) == 0
+                hot = (y % 5) == 0 or (enraged and (y % 3) == 0)
                 colour = crack_hot if hot else crack
                 base[y0 + y][x0 + x] = colour
                 glow[y0 + y][x0 + x] = colour
-                if hot and x + 1 < fw - 2:
+                # An enraged vein is two pixels wide, so it survives the mipmap at range.
+                if (hot or enraged) and x + 1 < fw - 2:
                     base[y0 + y][x0 + x + 1] = crack
                     glow[y0 + y][x0 + x + 1] = crack
 
@@ -202,12 +223,12 @@ def paint_face(base, glow, rect, palette, crack, crack_hot, role, face):
             base[row][x0 + dx] = shade(palette["edge"], factor)
 
 
-def paint(size, cubes, palette, crack, crack_hot):
+def paint(size, cubes, palette, crack, crack_hot, enraged=False):
     base = blank(size)
     glow = blank(size)
     for _name, u, v, w, h, d, role in cubes:
         for rect in faces(u, v, w, h, d):
-            paint_face(base, glow, rect, palette, crack, crack_hot, role, rect[0])
+            paint_face(base, glow, rect, palette, crack, crack_hot, role, rect[0], enraged)
     return base, glow
 
 
@@ -231,7 +252,9 @@ def main():
     write_png(os.path.join(out, "ashen_colossus.png"), 128, 128, calm)
     write_png(os.path.join(out, "ashen_colossus_glowmask.png"), 128, 128, calm_glow)
 
-    rage, rage_glow = paint(128, COLOSSUS_CUBES, STONE, CRACK_RAGE, CRACK_RAGE_HOT)
+    rage, rage_glow = paint(
+        128, COLOSSUS_CUBES, STONE_RAGE, CRACK_RAGE, CRACK_RAGE_HOT, enraged=True
+    )
     write_png(os.path.join(out, "ashen_colossus_enraged.png"), 128, 128, rage)
     write_png(os.path.join(out, "ashen_colossus_enraged_glowmask.png"), 128, 128, rage_glow)
 

@@ -1,7 +1,6 @@
 {
-  "parent": "creator_vault:block/cursed_altar_template",
+  "parent": "creator_vault:block/cursed_altar_pedestal",
   "textures": {
-    "base": "creator_vault:block/cursed_altar_base",
-    "crystal": "creator_vault:block/cursed_altar_crystal_spent"
+    "base": "creator_vault:block/cursed_altar_base"
   }
 }

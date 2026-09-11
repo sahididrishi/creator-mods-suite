@@ -32,11 +32,11 @@ public final class PowersFabricClientGlue {
             KeyBindingHelper.registerKeyBinding(mapping);
         }
 
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.player != null && client.screen == null) {
-                PowerKeys.poll();
-            }
-        });
+        // Unconditional: the HUD mirror's per-tick housekeeping (connection change, the staggered
+        // pop-in, the ready chime) has to run whether or not a screen is open. Only the key queue
+        // is gated, so an ability cannot fire from behind the pause menu.
+        ClientTickEvents.END_CLIENT_TICK.register(client ->
+                PowersClient.clientTick(client.player != null && client.screen == null));
         PowersClient.markKeyPollingWired();
     }
 

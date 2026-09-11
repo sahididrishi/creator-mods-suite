@@ -75,4 +75,19 @@ public class PowersNeoForgeGameTests {
     public void shieldDomeExpiresAndHandsBackTheBuffs(GameTestHelper helper) {
         PowersGameTests.shieldDomeExpiresAndHandsBackTheBuffs(helper);
     }
+
+    @GameTest(template = "empty", timeoutTicks = 120, batch = "creator_powers_reload")
+    public void reloadKeepsTheDomeAndTheWipeHandsItBack(GameTestHelper helper) {
+        PowersGameTests.reloadKeepsTheDomeAndTheWipeHandsItBack(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 120, batch = "creator_powers_logout")
+    public void logoutEndsTheDomeAndThawsThatPlayersMobs(GameTestHelper helper) {
+        PowersGameTests.logoutEndsTheDomeAndThawsThatPlayersMobs(helper);
+    }
+
+    @GameTest(template = "empty", batch = "creator_powers_pound_filter")
+    public void groundPoundSparesArmourStandsAndTheCastersOwnPet(GameTestHelper helper) {
+        PowersGameTests.groundPoundSparesArmourStandsAndTheCastersOwnPet(helper);
+    }
 }

@@ -61,6 +61,11 @@ public final class LavaFloorRule implements Rule {
     }
 
     @Override
+    public void onPlayerChangedDimension(RuleContext ctx, ServerPlayer player) {
+        forget(player.getUUID());
+    }
+
+    @Override
     public void tick(RuleContext ctx) {
         Set<UUID> seen = new HashSet<>();
         for (ServerPlayer player : ctx.players()) {
@@ -85,10 +90,10 @@ public final class LavaFloorRule implements Rule {
             standing.put(uuid, 0);
             melt(player.serverLevel(), pos.below());
         }
-        if (standing.size() > seen.size()) {
-            standing.keySet().retainAll(seen);
-            lastPos.keySet().retainAll(seen);
-        }
+        // Unconditionally: a size comparison misses the case where one player leaves and another
+        // joins in the same window, which leaves the departed player's entry in both maps forever.
+        standing.keySet().retainAll(seen);
+        lastPos.keySet().retainAll(seen);
     }
 
     private void forget(UUID uuid) {

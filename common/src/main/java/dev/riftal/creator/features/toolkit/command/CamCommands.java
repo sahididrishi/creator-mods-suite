@@ -1,5 +1,6 @@
 package dev.riftal.creator.features.toolkit.command;
 
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import dev.riftal.creator.core.command.CommandHelper;
@@ -28,7 +29,16 @@ public final class CamCommands {
                         .then(CommandHelper.arg("name", StringArgumentType.word())
                                 .suggests(ToolkitSuggestions.CAMERAS)
                                 .executes(ctx -> go(ctx.getSource(),
-                                        StringArgumentType.getString(ctx, "name")))))
+                                        StringArgumentType.getString(ctx, "name")))
+                                // The documented shape is `cam go <name> [glideTicks]`. The glide
+                                // itself is a stretch goal (it needs a Camera#setup mixin), so the
+                                // argument is accepted and the cut is an instant snap - the plan's
+                                // own MVP line is "instant snap". Erroring on a documented argument
+                                // on camera is the worse failure.
+                                .then(CommandHelper.arg("glideTicks",
+                                                IntegerArgumentType.integer(0, 200))
+                                        .executes(ctx -> go(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "name"))))))
                 .then(CommandHelper.literal("del")
                         .then(CommandHelper.arg("name", StringArgumentType.word())
                                 .suggests(ToolkitSuggestions.CAMERAS)

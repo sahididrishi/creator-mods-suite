@@ -3,7 +3,10 @@ package dev.riftal.creator.features.events.block;
 import static dev.riftal.creator.Constants.LOG;
 
 import dev.riftal.creator.core.util.Fx;
+import dev.riftal.creator.features.events.EventManager;
 import dev.riftal.creator.features.events.EventsFeature;
+import dev.riftal.creator.features.events.api.WorldEvent;
+import dev.riftal.creator.features.events.events.LuckyRainEvent;
 import dev.riftal.creator.features.events.lucky.LuckyOutcome;
 import dev.riftal.creator.features.events.lucky.LuckyOutcomeRunner;
 import dev.riftal.creator.features.events.lucky.LuckyOutcomes;
@@ -57,7 +60,7 @@ public class LuckyRainBlock extends Block implements Fallable {
     public static void roll(ServerLevel level, BlockPos pos) {
         List<LuckyOutcome> outcomes = EventsFeature.luckyOutcomes(level.getServer());
         RandomSource random = level.getRandom();
-        LuckyOutcome outcome = LuckyOutcomes.pick(outcomes, 0, random.nextDouble());
+        LuckyOutcome outcome = LuckyOutcomes.pick(outcomes, activeLuck(), random.nextDouble());
         if (outcome == null) {
             return;
         }
@@ -70,5 +73,15 @@ public class LuckyRainBlock extends Block implements Fallable {
         } catch (RuntimeException e) {
             LOG.error("[events] lucky outcome '{}' failed", outcome.type(), e);
         }
+    }
+
+    /**
+     * The {@code luck=} the running {@code luckyrain} was started with, or 0 when the block was
+     * dropped by something else entirely. Read here rather than passed in because {@code Fallable}
+     * gives the block no way to know which event spawned it.
+     */
+    private static int activeLuck() {
+        WorldEvent active = EventManager.active();
+        return active instanceof LuckyRainEvent rain ? rain.luck() : 0;
     }
 }

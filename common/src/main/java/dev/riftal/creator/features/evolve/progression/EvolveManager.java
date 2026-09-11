@@ -188,6 +188,17 @@ public final class EvolveManager {
         Payloads.sendToTracking(player, payloadFor(player));
     }
 
+    /**
+     * Sends one player's state to one viewer. Used by the start-tracking hook, where the viewer is
+     * about to be sent {@code tracked}'s spawn packet and needs the stage before the first frame.
+     */
+    public static void syncTo(ServerPlayer viewer, ServerPlayer tracked) {
+        if (!EvolveFeature.isReady()) {
+            return;
+        }
+        Payloads.sendToPlayer(viewer, payloadFor(tracked));
+    }
+
     /** Sends every online player's state to one viewer. Used when that viewer joins or respawns. */
     public static void sendRosterTo(ServerPlayer viewer) {
         if (!EvolveFeature.isReady()) {

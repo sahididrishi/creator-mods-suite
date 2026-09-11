@@ -36,7 +36,13 @@ public record LuckyOutcome(String type,
     public static final String TYPE_COMMAND = "command";
     public static final String TYPE_EFFECT = "effect";
 
-    /** True when this feature can actually run the outcome. */
+    /**
+     * True when this feature can actually run the outcome.
+     *
+     * <p>The plan's example table also shows a {@code structure} entry; that executor is marked
+     * stretch and is <em>not</em> implemented, so such an entry is dropped at parse time with a
+     * {@code LOG.warn} rather than failing silently.
+     */
     public boolean isKnownType() {
         return TYPE_ITEMS.equals(type)
                 || TYPE_ENTITY.equals(type)

@@ -56,10 +56,12 @@ public final class PowerHudLayer implements HudLayer {
 
     @Override
     public void render(GuiGraphics graphics, DeltaTracker delta) {
-        // Before any early return: on a loader whose glue never claimed the job this is the only
-        // per-frame hook the feature has, and a hidden HUD must not stop the keys from firing.
-        PowersClient.pollKeysIfNotWired();
-        ClientPowers.clientTick();
+        // Last-resort fallback for a loader whose glue never claimed the per-tick job - on Fabric
+        // that glue is reached reflectively and could in principle fail to start. It is NOT a
+        // safety net on NeoForge: vanilla only runs the layered draw inside its !hideGui guard, so
+        // this whole method is skipped while F1 is on. Both loaders wire a real client-tick hook
+        // (PowersFabricClientGlue / PowersNeoForgeClientTick) and this does nothing there.
+        PowersClient.tickIfNotWired();
 
         if (HudLayers.hudHidden() || !ClientPowers.hudVisible()) {
             return;
@@ -80,6 +82,12 @@ public final class PowerHudLayer implements HudLayer {
         RenderSystem.defaultBlendFunc();
         for (int slot = 0; slot < count; slot++) {
             ResourceLocation id = granted.get(slot);
+            // A freshly granted slot lands a few ticks after the one before it (plan 03 beat 1).
+            // Its place in the row is reserved from the start, so the icons pop in one by one
+            // instead of the whole row sliding sideways under the ones already on screen.
+            if (!ClientPowers.appeared(id)) {
+                continue;
+            }
             Ability ability = AbilityRegistry.get(id).orElse(null);
             int x = x0 + slot * (SLOT + GAP);
             if (ClientPowers.isShaking(slot)) {

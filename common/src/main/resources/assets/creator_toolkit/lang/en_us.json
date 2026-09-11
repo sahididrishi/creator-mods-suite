@@ -2,6 +2,9 @@
   "feature.creator_toolkit.name": "Director's Toolkit",
   "feature.creator_toolkit.description": "Recording controls: take timer, freeze, wave spawning, arena snapshot and restore, camera paths, HUD overlay.",
 
+  "key.categories.creator_toolkit": "Creator Mods: Director's Toolkit",
+  "key.creator_toolkit.mark": "Mark Take",
+
   "hud.creator_toolkit.recording": "REC",
   "hud.creator_toolkit.idle": "---",
   "hud.creator_toolkit.take": "TAKE %s  %s",
@@ -60,6 +63,8 @@
   "commands.creator_toolkit.hide.hud": "HUD hidden: %s",
   "commands.creator_toolkit.hide.chat": "Chat hidden: %s",
   "commands.creator_toolkit.hide.nametags": "Name tags hidden: %s",
+  "commands.creator_toolkit.hide.nametags.crew": "Name tags for %s: %s (scoreboard team, works on vanilla clients)",
+  "commands.creator_toolkit.hide.nametags.crew.team": "Toolkit Crew",
   "commands.creator_toolkit.hide.commands.on": "Silent mode ON - feedback moves to the action bar",
   "commands.creator_toolkit.hide.commands.off": "Silent mode OFF",
 

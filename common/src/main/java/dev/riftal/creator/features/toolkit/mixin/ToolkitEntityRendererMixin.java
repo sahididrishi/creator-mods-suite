@@ -1,7 +1,6 @@
 package dev.riftal.creator.features.toolkit.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.features.toolkit.ToolkitFeature;
 import dev.riftal.creator.features.toolkit.client.ClientToolkitState;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -31,7 +30,7 @@ public abstract class ToolkitEntityRendererMixin<T extends Entity> {
     private void creator_toolkit$hideNameTag(Entity entity, Component displayName, PoseStack poseStack,
                                              MultiBufferSource bufferSource, int packedLight,
                                              float partialTick, CallbackInfo ci) {
-        if (!CreatorMods.isEnabled(ToolkitFeature.ID)) {
+        if (!ToolkitFeature.enabled()) {
             return;
         }
         if (ClientToolkitState.nametagsHidden()) {

@@ -28,6 +28,9 @@ import java.util.List;
  *
  * <p>The next roll is stored as an absolute game time in the world's saved data, so a relog does
  * not reset the clock and a restart does not fire a roll immediately.
+ *
+ * <p>{@code /rule item_roulette fire} rolls every online player straight away and restarts the
+ * clock - a sixty-second timer is unfilmable otherwise.
  */
 public final class ItemRouletteRule implements Rule {
 
@@ -70,7 +73,18 @@ public final class ItemRouletteRule implements Rule {
         if (now < nextRollTick) {
             return;
         }
-        nextRollTick = now + INTERVAL_TICKS;
+        rollEveryone(ctx);
+    }
+
+    @Override
+    public boolean fire(RuleContext ctx) {
+        rollEveryone(ctx);
+        return true;
+    }
+
+    /** One roll for every eligible player, and the clock restarted from now. */
+    private void rollEveryone(RuleContext ctx) {
+        nextRollTick = ctx.gameTime() + INTERVAL_TICKS;
         for (ServerPlayer player : ctx.players()) {
             if (player.isSpectator() || !player.isAlive()) {
                 continue;
@@ -91,7 +105,7 @@ public final class ItemRouletteRule implements Rule {
     }
 
     private static void give(ServerPlayer player, RandomSource random) {
-        Item item = RandomItems.pick(random);
+        Item item = RandomItems.pick(player.getServer(), random);
         if (item == Items.AIR) {
             return;
         }

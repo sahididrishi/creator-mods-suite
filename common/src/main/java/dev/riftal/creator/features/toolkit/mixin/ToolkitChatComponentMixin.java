@@ -1,6 +1,5 @@
 package dev.riftal.creator.features.toolkit.mixin;
 
-import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.features.toolkit.ToolkitFeature;
 import dev.riftal.creator.features.toolkit.client.ClientToolkitState;
 import net.minecraft.client.gui.GuiGraphics;
@@ -25,7 +24,7 @@ public abstract class ToolkitChatComponentMixin {
             cancellable = true)
     private void creator_toolkit$hideChat(GuiGraphics guiGraphics, int tickCount, int mouseX, int mouseY,
                                           boolean focused, CallbackInfo ci) {
-        if (!CreatorMods.isEnabled(ToolkitFeature.ID)) {
+        if (!ToolkitFeature.enabled()) {
             return;
         }
         if (ClientToolkitState.chatHidden()) {

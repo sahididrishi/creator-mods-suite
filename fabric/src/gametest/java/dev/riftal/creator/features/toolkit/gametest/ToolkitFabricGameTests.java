@@ -52,4 +52,24 @@ public class ToolkitFabricGameTests implements FabricGameTest {
     public void cameraBookmarksRoundTripThroughSavedState(GameTestHelper helper) {
         ToolkitGameTests.cameraBookmarksRoundTripThroughSavedState(helper);
     }
+
+    @GameTest(template = EMPTY)
+    public void cheatGodBlocksDamage(GameTestHelper helper) {
+        ToolkitGameTests.cheatGodBlocksDamage(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void tpHereSetsExactRotation(GameTestHelper helper) {
+        ToolkitGameTests.tpHereSetsExactRotation(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void silentModeFlipsGamerules(GameTestHelper helper) {
+        ToolkitGameTests.silentModeFlipsGamerules(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void hideNametagsTeamsTheCrewForVanillaClients(GameTestHelper helper) {
+        ToolkitGameTests.hideNametagsTeamsTheCrewForVanillaClients(helper);
+    }
 }

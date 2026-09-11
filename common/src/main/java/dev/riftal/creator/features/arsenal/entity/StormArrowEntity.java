@@ -3,6 +3,7 @@ package dev.riftal.creator.features.arsenal.entity;
 import dev.riftal.creator.core.util.Fx;
 import dev.riftal.creator.features.arsenal.ArsenalFeature;
 import dev.riftal.creator.features.arsenal.mechanic.DamageMath;
+import dev.riftal.creator.features.arsenal.mechanic.Impact;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
@@ -124,7 +125,11 @@ public class StormArrowEntity extends AbstractArrow {
             if (damage <= 0.0F) {
                 continue;
             }
-            victim.hurt(source, damage);
+            // Through the cooldown, so the blast delivers exactly what DamageMath promises at every
+            // distance. The entity the arrow physically struck is still inside the invulnerability
+            // window super.onHitEntity() just opened, and used to be the one mob in the blast that
+            // survived - it took 10 minus the arrow's own damage while its neighbours took 10.
+            Impact.hurtThroughCooldown(victim, source, damage);
             victim.setRemainingFireTicks(0);
             Vec3 away = victim.position().subtract(where);
             if (away.lengthSqr() < 1.0E-4D) {

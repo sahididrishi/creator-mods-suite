@@ -2,8 +2,8 @@
 
 Five directed world events you can start, retime, skip and stop from one command, on camera, with
 no mods-menu detour and no leftovers. Every event is a phase machine that survives a relog, tints
-the sky through a return-value mixin instead of a resource pack, and cleans up everything it
-created when you stop it.
+the sky and the fog through mixins on the vanilla render path instead of a resource pack, and
+cleans up everything it created when you stop it.
 
 > Part of the Creator Mods Suite. Turn the whole feature off with
 > `/creator feature events false` (or `"events": false` in `config/creatormods.json`) and it
@@ -15,7 +15,7 @@ created when you stop it.
 
 | id | what the camera sees | phases | ends when |
 |---|---|---|---|
-| `bloodmoon` | The sky floods red over 2 s, the clock time-lapses to dusk, every monster within 96 blocks glows through walls, the monster spawn cap doubles, a low drone rolls in every 5 s. | `rise` (40t) → `night` (open) → `fade` (40t) | dawn — or after 6000 ticks if `doDaylightCycle` is off |
+| `bloodmoon` | The sky **and the fog** flood red over 2 s, the clock time-lapses to dusk, every monster within 96 blocks glows through walls, the monster spawn cap doubles (global **and** per-chunk), and a low drone fades in as a client-side loop. | `rise` (40t) → `night` (open) → `fade` (40t) | dawn — or after 6000 ticks if `doDaylightCycle` is off |
 | `meteor` | A 5-second countdown with title cards and a rising bell, a ring of flame on the target, then a burning boulder on a straight line, a TNT-grade explosion, a scorched crater and a loot chest in the middle of it. | `countdown` (100t) → `flight` (60t) → `impact` (1t) → `aftermath` (400t) | the aftermath runs out |
 | `siege` | Waves of hostiles spawn out of sight 24–40 blocks out and converge on you, counted off on a red notched boss bar, with a `WAVE n/N` title between waves and a reward drop at the end. | `prepare` (60t) → `waves` (open) → `victory` (100t) | the last wave is cleared |
 | `luckyrain` | Gold `?` blocks fall around every player and burst into a random outcome — loot, mobs, an explosion, a command, a potion effect. | `rain` (`duration` seconds) | the duration runs out |
@@ -54,10 +54,12 @@ saved with the event, so a resumed event keeps the options it started with.
 | event | key | default | range | meaning |
 |---|---|---|---|---|
 | `siege` | `waves` | all five | 1 … table size | how many waves to run |
-| `siege` | `radius` | 40 | 6 … 128 | outer spawn radius; the inner radius is 60% of it |
+| `siege` | `radius` | 40 | 6 … 128 | outer spawn radius; the inner radius is 60 % of it, floor 4 |
+| `siege` | `bossbar` | `true` | boolean | `false` runs the waves without the vanilla boss bar |
 | `luckyrain` | `interval` | 20 | 2 … 200 | ticks between drops, per player |
 | `luckyrain` | `radius` | 12 | 2 … 48 | drop radius around each player |
 | `luckyrain` | `duration` | 60 | 1 … 3600 | seconds of rain |
+| `luckyrain` | `luck` | 0 | -5 … 5 | player luck fed to the outcome weighting; 0 is the plain table |
 | `voidrise` | `speed` | 0.05 | 0.001 … 4 | blocks per tick (0.05 = one block a second) |
 | `voidrise` | `maxY` | 40 | above `minY` | where the plane stops |
 | `voidrise` | `minY` | world floor | build range | where the plane starts |
@@ -82,6 +84,7 @@ There is no per-feature config file: the only switch is `features.events` in
 | `data/creator_events/siege_waves/default.json` | the siege wave table |
 | `data/creator_events/loot_table/meteor.json` | what is in the crater chest |
 | `data/creator_events/loot_table/siege_reward.json` | what victory drops |
+| `data/creator_events/loot_table/blocks/lucky_rain.json` | what the `lucky_rain` block drops when mined |
 
 Both tables fall back to an identical in-code default if the file is missing or malformed, so a
 typo mid-recording degrades to the shipped behaviour instead of breaking the take. Run
@@ -103,8 +106,9 @@ typo mid-recording degrades to the shipped behaviour instead of breaking the tak
 
 `weight` is the relative pick weight. `luck` is how much player luck should favour the outcome:
 the effective weight is `weight × (1 / (1 − |playerLuck| × 0.77 / 100)) ^ luck`, so at player luck
-0 — the MVP case — it collapses to the plain weight. Entries with an unknown `type` or a
-non-positive `weight` are dropped and the rest still load.
+0 — the default, and what you get unless you pass `luck=` on the command — it collapses to the
+plain weight. Entries with an unknown `type` or a non-positive `weight` are dropped and the rest
+still load.
 
 ### Siege wave schema
 
@@ -163,18 +167,45 @@ persistent, so `/event stop` can take all of them back.
 | payload | `creator_events:event_state` (server → client, cosmetic only) |
 | saved data | `creator_events_director` in the overworld's data storage |
 
-Mixins: `ClientLevel#getSkyColor` (`@ModifyReturnValue`, client only, sky tint) and
-`NaturalSpawner.SpawnState#canSpawnForCategory` (`@Inject`, monster headroom during a blood moon).
-Both bail out immediately when the feature is disabled or no event is running.
+Mixins — every one of them returns on its first statement when the feature is disabled or no event
+is running:
+
+| Class | Target | Why |
+|---|---|---|
+| `EventsClientLevelMixin` | `ClientLevel#getSkyColor` (`@ModifyReturnValue`) | sky-dome tint (client) |
+| `EventsFogRendererMixin` | `FogRenderer#setupColor` (`@Inject`) | the matching fog tint (client); skipped in water, lava and powder snow |
+| `EventsMinecraftMixin` | `Minecraft#tick`, `#disconnect` | drives the client-side ambient loop and drops it on disconnect |
+| `EventsSpawnStateMixin` | `NaturalSpawner.SpawnState#canSpawnForCategory` | raises the **global** monster cap during a blood moon |
+| `EventsLocalMobCapCalculatorMixin` | `LocalMobCapCalculator$MobCounts#canSpawn` | raises the **per-chunk** cap by the same multiplier |
+| `EventsNaturalSpawnerMixin` | `NaturalSpawner#spawnForChunk` | arms the multiplier for the spawn pass |
+| `EventsEntityCallbacksMixin` | `ServerLevel$EntityCallbacks#onTrackingStart` | tags newly tracked mobs for the running event |
+| `EventsPlayerListMixin` | `PlayerList#placeNewPlayer` | pushes the event state to a player who joins mid-event |
+
+Both spawn-cap mixins carry `priority = 900`, which is what keeps them out of the way of other mods
+(Enhanced Celestials) that inject at the same two places.
 
 ## Known limits
 
-* **Fog is not tinted, only the sky.** The fog colour hook is loader-specific and was left out of
-  the MVP; on camera the sky flushes red and the fog does not.
-* **Ambient sound is a repeated one-shot**, not a looping client sound instance: the blood-moon
-  drone re-triggers every 5 seconds and does not stop instantly on `/event stop`.
-* **Spawn cap**: the global monster cap is doubled, the per-chunk local cap is not, so the extra
-  monsters only appear in the band between the vanilla cap and the raised one.
+* **Sky and fog are tinted; nothing else is.** Both go through one mixin each on the vanilla methods,
+  on both loaders, so the two look identical — but underwater, lava and powder-snow fog are left
+  alone on purpose, and there is no biome, water or cloud tint.
+* **The ambient bed is a client-side looping sound instance** (`EventAmbientSound`, 40-tick fade in
+  and out), started once per client rather than re-sent per player. It fades rather than cutting on
+  `/event stop`, which is deliberate; a hard cut is what a `stop` on the sound manager would give.
+* **Spawn cap**: both the global and the per-chunk monster caps are raised by the event's
+  multiplier (×2 for the blood moon), so the horde thickens around the camera rather than only in
+  the band between the vanilla global cap and the raised one.
 * **Shader packs** may override the sky tint; `getSkyColor` return-modification is respected by
   Iris but a pack that computes its own sky will win.
 * Placeholder art and audio — see `common/src/main/java/dev/riftal/creator/features/events/ASSETS.md`.
+
+## Tests
+
+| Kind | Where | What it covers |
+|---|---|---|
+| JUnit | `common/src/test/java/dev/riftal/creator/features/events/` | `PhaseMachineTest` (timed phases completing exactly on their duration, open phases waiting on the world, progress clamping, every shipped event declaring its planned phases, the blood-moon constants), `EventLogicTest` (option parsing, clamping and garbage, the crater shape, the void plane rising and clamping, `/event timer` recomputing the rise speed, siege waves scaling with difficulty and round-tripping through JSON), `LuckyOutcomeWeightingTest` (plain weights at luck 0, the documented luck formula, seeded shares, a broken data pack never emptying the table), `MeteorTrajectoryTest` (aim velocity, the flight arriving inside its phase, crater size and clamping), `SpawnRingDistributionTest` (area-uniform radius, uniform angle, repaired bounds), `SkyTintTest` (the ramp, the fade, clamping, per-channel mixing), `ClientEventStateTest` (the mirror resetting between worlds, the tick-driven fade, other dimensions getting neither HUD nor tint, and the ambient-loop id a running event names), `EventStatePayloadTest` (payload round trip, the idle payload, per-dimension gating), `EventAssetCoverageTest` (every sound event has a definition, a subtitle and an `.ogg`; the lucky-rain block has its whole file set; the loot tables the code names exist; the shipped data-pack files parse with the game's own parsers; every lang key resolves) |
+| GameTest | `common/src/gametest/java/dev/riftal/creator/features/events/gametest/EventsGameTests.java` | 10 bodies: feature enabled; all five events registered; the blood moon raising and restoring the spawn cap and its skip bringing dawn; starting an event replacing the active one; `/event timer` retiming a phase and `/event skip` ending the event; the meteor skipping from countdown to flight and its impact building the crater chest; a lucky `entity` outcome spawning its mob; the void plane clamping at `maxY` and handing over to `hold`; the siege spawning its first wave |
+| Loader stubs | `fabric/src/gametest/java/.../EventsFabricGameTests.java`, `neoforge/src/gametest/java/.../EventsNeoForgeGameTests.java` | — |
+
+Assets: see [`ASSETS.md`](../../common/src/main/java/dev/riftal/creator/features/events/ASSETS.md)
+— the one texture and the six sounds are procedural placeholders.

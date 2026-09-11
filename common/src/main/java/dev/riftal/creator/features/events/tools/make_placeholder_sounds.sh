@@ -3,10 +3,14 @@
 #
 #   bash common/src/main/java/dev/riftal/creator/features/events/tools/make_placeholder_sounds.sh
 #
-# The ffmpeg on this machine has no libvorbis and ffmpeg's native `vorbis`
-# encoder is stereo-only, hence `-ac 2 -c:a vorbis -strict -2` (CONTRACT.md 9.2).
-# That makes these placeholders NON-POSITIONAL in game (no distance
-# attenuation); the real replacements must be MONO 44.1 kHz. See ASSETS.md.
+# Requires ffmpeg and oggenc (`brew install vorbis-tools`).
+#
+# Every file MUST come out MONO 44.1 kHz: Minecraft applies 3D attenuation and
+# panning only to mono sounds, so a stereo ogg plays flat and non-directional no
+# matter how the code positions it (CONTRACT.md 9.2). The ffmpeg on this machine
+# has no libvorbis and its native `vorbis` encoder refuses anything but 2
+# channels, so ffmpeg synthesises a mono WAV and oggenc does the encoding. Do
+# not "simplify" this back to a single ffmpeg call with `-ac 2`.
 #
 # Each file is synthesised to be plausible for its role rather than a beep:
 # the drone and the hum are slow low sines with a slight beat, the whistle is a
@@ -21,13 +25,16 @@ gen() { # gen <relative/path.ogg> <lavfi source> <filter chain>
   local path="$OUT/$1"; shift
   local src="$1"; shift
   local filt="$1"; shift
+  local wav; wav="$(mktemp -t creator_events_sound).wav"
   mkdir -p "$(dirname "$path")"
   ffmpeg -v error -y -f lavfi -i "$src" -af "$filt" \
-         -ac 2 -ar 44100 -c:a vorbis -strict -2 -b:a 96k "$path"
+         -ac 1 -ar 44100 -c:a pcm_s16le "$wav"
+  oggenc -Q -q 5 -o "$path" "$wav"
+  rm -f "$wav"
 }
 
 # Blood moon: a 55 Hz drone with a fifth above it and a slow beat, topped and
-# tailed so the 5 s re-trigger does not click.
+# tailed so the client-side loop does not click at the seam.
 gen bloodmoon/drone.ogg \
   "aevalsrc='0.45*sin(2*PI*55*t)+0.17*sin(2*PI*82.5*t)+0.09*sin(2*PI*110*t)*(0.5+0.5*sin(2*PI*0.3*t))':d=6:s=44100" \
   "lowpass=f=900,afade=t=in:st=0:d=0.9,afade=t=out:st=5.1:d=0.9,volume=0.8"
@@ -63,4 +70,9 @@ find "$OUT" -name '*.ogg' -print0 | while IFS= read -r -d '' f; do
   ffprobe -v error -show_entries stream=codec_name,channels,sample_rate \
           -show_entries format=duration -of default=nw=1 "$f" | tr '\n' ' '
   echo
+  channels="$(ffprobe -v error -show_entries stream=channels -of csv=p=0 "$f")"
+  if [ "$channels" != "1" ]; then
+    echo "FAIL: $f is $channels-channel; Minecraft needs mono" >&2
+    exit 1
+  fi
 done

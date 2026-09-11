@@ -10,10 +10,10 @@ import dev.riftal.creator.features.events.net.EventStatePayload;
 import org.junit.jupiter.api.Test;
 
 /**
- * The hand-written fifteen-field state record. The stream codec itself needs a registry-aware
+ * The hand-written seventeen-field state record. The stream codec itself needs a registry-aware
  * buffer and therefore a booted game, so it belongs in a GameTest; what is testable here is the
  * record contract the HUD and the sky mixin read, and the copy the manager uses for its idle
- * broadcast - a hand-written copy constructor with fifteen arguments is exactly the kind of thing
+ * broadcast - a hand-written copy constructor with seventeen arguments is exactly the kind of thing
  * that silently drops a field.
  */
 class EventStatePayloadTest {
@@ -21,7 +21,8 @@ class EventStatePayloadTest {
     private static final EventStatePayload SIEGE = new EventStatePayload(
             "siege", "waves", 1, 37, -1, 0.42F,
             0.6F, 0.1F, 0.2F, 0.85F,
-            12.5D, 3, 5, 17, true);
+            12.5D, 3, 5, 17, true,
+            "minecraft:overworld", "creator_events:bloodmoon.drone");
 
     @Test
     void idleCarriesNothingAndReportsItself() {
@@ -36,6 +37,18 @@ class EventStatePayloadTest {
         assertEquals(0, EventStatePayload.IDLE.wave());
         assertEquals(0, EventStatePayload.IDLE.waveTotal());
         assertEquals(0, EventStatePayload.IDLE.alive());
+        assertEquals("", EventStatePayload.IDLE.dimension(), "an idle director is nowhere");
+        assertEquals("", EventStatePayload.IDLE.ambientLoop(), "an idle director loops nothing");
+    }
+
+    @Test
+    void stateOnlyAppliesInItsOwnDimension() {
+        assertTrue(SIEGE.appliesTo("minecraft:overworld"));
+        assertFalse(SIEGE.appliesTo("minecraft:the_nether"),
+                "a player in the Nether must not get an Overworld siege's HUD line");
+        assertFalse(SIEGE.appliesTo(""), "an unknown viewer dimension matches nothing");
+        assertTrue(EventStatePayload.IDLE.appliesTo("minecraft:the_end"),
+                "idle carries no dimension and clears the client everywhere");
     }
 
     @Test
@@ -66,6 +79,8 @@ class EventStatePayloadTest {
         assertEquals(SIEGE.wave(), hidden.wave());
         assertEquals(SIEGE.waveTotal(), hidden.waveTotal());
         assertEquals(SIEGE.alive(), hidden.alive());
+        assertEquals(SIEGE.dimension(), hidden.dimension());
+        assertEquals(SIEGE.ambientLoop(), hidden.ambientLoop());
     }
 
     @Test

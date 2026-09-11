@@ -1,12 +1,16 @@
 package dev.riftal.creator.features.toolkit.gametest;
 
 import dev.riftal.creator.core.CreatorMods;
+import dev.riftal.creator.core.command.SilentMode;
 import dev.riftal.creator.features.toolkit.ToolkitDimensions;
 import dev.riftal.creator.features.toolkit.ToolkitFeature;
 import dev.riftal.creator.features.toolkit.ToolkitRuntime;
 import dev.riftal.creator.features.toolkit.ToolkitState;
 import dev.riftal.creator.features.toolkit.arena.ArenaManager;
 import dev.riftal.creator.features.toolkit.cam.CameraBookmark;
+import dev.riftal.creator.features.toolkit.cheat.CheatManager;
+import dev.riftal.creator.features.toolkit.command.HideCommands;
+import dev.riftal.creator.features.toolkit.command.TpHereCommands;
 import dev.riftal.creator.features.toolkit.freeze.FreezeManager;
 import dev.riftal.creator.features.toolkit.take.Mark;
 import dev.riftal.creator.features.toolkit.take.TakeLog;
@@ -22,7 +26,13 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.vehicle.Minecart;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.scores.PlayerTeam;
+import net.minecraft.world.scores.Team;
 import net.minecraft.world.phys.Vec3;
 
 import java.io.IOException;
@@ -34,7 +44,7 @@ import java.util.List;
  *
  * <p>Add a {@code public static void name(GameTestHelper helper)} here, then one annotated stub in
  * {@code fabric/src/gametest/java/.../ToolkitFabricGameTests.java} and one in
- * {@code neoforge/src/main/java/.../ToolkitNeoForgeGameTests.java}.
+ * {@code neoforge/src/gametest/java/.../ToolkitNeoForgeGameTests.java}.
  *
  * <p>Tests in a batch tick side by side, and three of this feature's systems are server-wide
  * singletons (the take recorder, the freeze flags, the wave tag). So there is exactly <em>one</em>
@@ -48,6 +58,11 @@ public final class ToolkitGameTests {
     public static void featureIsEnabled(GameTestHelper helper) {
         helper.assertTrue(CreatorMods.isEnabled(ToolkitFeature.ID),
                 "feature '" + ToolkitFeature.ID + "' should be enabled in the test session");
+        // The mixins read the cached copy, not the stream-backed lookup above. If initCommon()
+        // ever stops setting it, every freeze and hide injection silently becomes a no-op and
+        // nothing else in this suite would notice.
+        helper.assertTrue(ToolkitFeature.enabled(),
+                "ToolkitFeature.enabled() must mirror CreatorMods.isEnabled after initCommon()");
         helper.succeed();
     }
 
@@ -107,27 +122,50 @@ public final class ToolkitGameTests {
         ToolkitRuntime.bind(server);
         Zombie zombie = helper.spawn(EntityType.ZOMBIE, new BlockPos(4, 5, 4));
         zombie.setNoGravity(false);
+
+        // A mob riding something that is not a mob is reached only through
+        // ServerLevel#tickPassenger, which the tickNonPassenger cancel never sees: without the
+        // second injection this rider keeps animating while everything on the ground is halted.
+        Minecart minecart = helper.spawn(EntityType.MINECART, new BlockPos(2, 2, 2));
+        Zombie rider = helper.spawn(EntityType.ZOMBIE, new BlockPos(2, 2, 2));
+        helper.assertTrue(rider.startRiding(minecart, true), "the rider did not board the minecart");
+
         FreezeManager.setMobs(server, true);
 
         // Index 0: where the zombie was once the freeze was definitely in force.
         Vec3[] frozenAt = new Vec3[1];
+        int[] riderTicks = new int[1];
 
         helper.startSequence()
-                .thenExecuteAfter(2, () -> frozenAt[0] = zombie.position())
+                .thenExecuteAfter(2, () -> {
+                    frozenAt[0] = zombie.position();
+                    riderTicks[0] = rider.tickCount;
+                })
                 .thenExecuteAfter(20, () -> {
                     Vec3 now = zombie.position();
                     boolean removed = zombie.isRemoved();
+                    int riderNow = rider.tickCount;
+                    boolean stillRiding = rider.getVehicle() == minecart;
                     // Release first: a failing assertion must not leave the world frozen.
                     FreezeManager.setMobs(server, false);
                     helper.assertFalse(removed, "a frozen zombie was removed");
                     helper.assertTrue(now.distanceToSqr(frozenAt[0]) < 1.0E-4D,
                             "a frozen zombie moved from " + frozenAt[0] + " to " + now);
+                    helper.assertTrue(stillRiding, "the frozen rider fell out of its minecart");
+                    helper.assertTrue(riderNow == riderTicks[0],
+                            "a mob riding a minecart kept ticking while frozen: tickCount went "
+                                    + riderTicks[0] + " -> " + riderNow);
                 })
                 .thenExecuteAfter(20, () -> {
                     Vec3 now = zombie.position();
                     helper.assertTrue(now.y < frozenAt[0].y - 0.5D,
                             "a released zombie should fall: y went " + frozenAt[0].y + " -> " + now.y);
+                    helper.assertTrue(rider.tickCount > riderTicks[0],
+                            "a released rider should tick again");
                     helper.assertFalse(FreezeManager.mobsFrozen(), "the freeze flag should be off");
+                    rider.stopRiding();
+                    rider.discard();
+                    minecart.discard();
                     zombie.discard();
                 })
                 .thenSucceed();
@@ -232,6 +270,15 @@ public final class ToolkitGameTests {
         helper.assertTrue(TakeManager.nextNumber(server) == 43,
                 "the next take should be 43, is " + TakeManager.nextNumber(server));
 
+        // Take numbers are three digits because the log file is named take-NNN.log. Past 999 they
+        // wrap instead of sticking: a stuck 999 made TakeLog.open truncate the same file on every
+        // start, silently destroying the previous take's marks.
+        TakeManager.setNextNumber(server, 999);
+        helper.assertTrue(TakeManager.start(server).number() == 999, "take 999 should be claimable");
+        helper.assertTrue(TakeManager.nextNumber(server) == 1,
+                "take 999 should wrap to 1, went to " + TakeManager.nextNumber(server));
+        TakeManager.stop(server);
+
         try {
             List<String> lines = Files.readAllLines(log.file());
             helper.assertTrue(lines.size() == 4,
@@ -273,6 +320,146 @@ public final class ToolkitGameTests {
 
         helper.assertTrue(state.removeCamera("HERO"), "deleting by a differently-cased name failed");
         helper.assertTrue(state.camera("hero") == null, "the camera should be gone");
+        helper.succeed();
+    }
+
+    /**
+     * {@code /toolkit cheat god on} really does stop damage, and switching it off really does let
+     * it through again.
+     *
+     * <p>Drives {@link CheatManager#applyGod} rather than the {@code ServerPlayer} overload,
+     * because {@code makeMockPlayer} returns a plain {@code Player}. That is the whole of what the
+     * command writes: {@code Abilities.invulnerable} plus {@code onUpdateAbilities()}.
+     */
+    public static void cheatGodBlocksDamage(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Player creator = helper.makeMockPlayer(GameType.SURVIVAL);
+        // makeMockPlayer builds the player at BlockPos.ZERO, which is outside the test area on most
+        // batches. Put it on the floor of our own structure so the damage pipeline's game events
+        // and sounds land in a loaded chunk.
+        Vec3 spot = helper.absoluteVec(new Vec3(4.5D, 2.0D, 4.5D));
+        creator.moveTo(spot.x, spot.y, spot.z, 0.0F, 0.0F);
+        creator.setHealth(creator.getMaxHealth());
+        float full = creator.getHealth();
+
+        CheatManager.applyGod(creator, true);
+        helper.assertTrue(creator.getAbilities().invulnerable, "god did not set the ability");
+        boolean hurtWhileGod = creator.hurt(level.damageSources().generic(), 10.0F);
+        helper.assertFalse(hurtWhileGod, "a damage source got through while god was on");
+        helper.assertTrue(creator.getHealth() == full,
+                "god should have kept health at " + full + ", it is " + creator.getHealth());
+
+        CheatManager.applyGod(creator, false);
+        helper.assertFalse(creator.getAbilities().invulnerable, "god did not clear the ability");
+        boolean hurtWithoutGod = creator.hurt(level.damageSources().generic(), 10.0F);
+        helper.assertTrue(hurtWithoutGod, "damage was still blocked after god off");
+        helper.assertTrue(creator.getHealth() < full,
+                "health should have dropped below " + full + ", it is " + creator.getHealth());
+        helper.succeed();
+    }
+
+    /**
+     * {@code /toolkit tphere} puts the crew on the director's <em>exact</em> angle, not just their
+     * position - a shot that is a degree off is a re-take.
+     */
+    public static void tpHereSetsExactRotation(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Player crew = helper.makeMockPlayer(GameType.SURVIVAL);
+        Vec3 target = helper.absoluteVec(new Vec3(4.5D, 2.0D, 4.5D));
+
+        helper.assertTrue(TpHereCommands.pull(level, target, 123.4F, -45.0F, crew),
+                "tphere refused to move the crew member");
+
+        helper.assertTrue(Math.abs(crew.getX() - target.x) < 0.01D
+                        && Math.abs(crew.getY() - target.y) < 0.01D
+                        && Math.abs(crew.getZ() - target.z) < 0.01D,
+                "tphere landed at " + crew.position() + ", wanted " + target);
+        helper.assertTrue(Math.abs(crew.getYRot() - 123.4F) < 0.01F,
+                "yaw is " + crew.getYRot() + ", wanted 123.4");
+        helper.assertTrue(Math.abs(crew.getXRot() + 45.0F) < 0.01F,
+                "pitch is " + crew.getXRot() + ", wanted -45");
+        helper.assertTrue(Math.abs(crew.getYHeadRot() - 123.4F) < 0.01F,
+                "head yaw is " + crew.getYHeadRot() + ", wanted 123.4 - the body turned but the "
+                        + "head did not, so the camera looks the wrong way");
+        helper.succeed();
+    }
+
+    /**
+     * {@code /toolkit hide commands on} silences the two chat-noisy game rules, {@code off} puts
+     * back exactly what was there before - and so does the shutdown path, which is the one that
+     * actually decides whether the world is saved permanently silent.
+     */
+    public static void silentModeFlipsGamerules(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        GameRules rules = server.getGameRules();
+        boolean feedbackBefore = rules.getBoolean(GameRules.RULE_SENDCOMMANDFEEDBACK);
+        boolean adminBefore = rules.getBoolean(GameRules.RULE_LOGADMINCOMMANDS);
+        helper.assertFalse(SilentMode.isSilent(), "another test left silent mode on");
+
+        try {
+            HideCommands.setSilent(server, true);
+            helper.assertTrue(SilentMode.isSilent(), "silent mode did not switch on");
+            helper.assertFalse(rules.getBoolean(GameRules.RULE_SENDCOMMANDFEEDBACK),
+                    "sendCommandFeedback should be off while silent");
+            helper.assertFalse(rules.getBoolean(GameRules.RULE_LOGADMINCOMMANDS),
+                    "logAdminCommands should be off while silent");
+        } finally {
+            HideCommands.setSilent(server, false);
+        }
+
+        helper.assertFalse(SilentMode.isSilent(), "silent mode did not switch off");
+        helper.assertTrue(rules.getBoolean(GameRules.RULE_SENDCOMMANDFEEDBACK) == feedbackBefore,
+                "sendCommandFeedback was not restored to " + feedbackBefore);
+        helper.assertTrue(rules.getBoolean(GameRules.RULE_LOGADMINCOMMANDS) == adminBefore,
+                "logAdminCommands was not restored to " + adminBefore);
+
+        // The shutdown path: silent mode is still on when the world closes. Core's own
+        // SilentMode.reset() may already have zeroed its statics by then - simulate that - and the
+        // rules must still come back, because otherwise they are written into level.dat as-is.
+        try {
+            HideCommands.setSilent(server, true);
+            SilentMode.reset();
+            helper.assertTrue(HideCommands.restoreGameRules(server),
+                    "the shutdown restore did nothing even though we had switched silent mode on");
+            helper.assertTrue(rules.getBoolean(GameRules.RULE_SENDCOMMANDFEEDBACK) == feedbackBefore,
+                    "sendCommandFeedback survived shutdown as "
+                            + rules.getBoolean(GameRules.RULE_SENDCOMMANDFEEDBACK));
+            helper.assertTrue(rules.getBoolean(GameRules.RULE_LOGADMINCOMMANDS) == adminBefore,
+                    "logAdminCommands survived shutdown as "
+                            + rules.getBoolean(GameRules.RULE_LOGADMINCOMMANDS));
+            helper.assertFalse(HideCommands.restoreGameRules(server),
+                    "a second restore should be a no-op");
+        } finally {
+            SilentMode.reset();
+            HideCommands.setSilent(server, false);
+            rules.getRule(GameRules.RULE_SENDCOMMANDFEEDBACK).set(feedbackBefore, server);
+            rules.getRule(GameRules.RULE_LOGADMINCOMMANDS).set(adminBefore, server);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * The half of {@code /toolkit hide nametags} that works without the mod on the other end: the
+     * named crew goes into a scoreboard team whose name-tag visibility is {@code NEVER}, and taking
+     * the last member out takes the team with it so {@code /team list} stays clean on camera.
+     */
+    public static void hideNametagsTeamsTheCrewForVanillaClients(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ToolkitRuntime.bind(server);
+        String crew = "gametest_cam2";
+
+        helper.assertTrue(HideCommands.setCrewNameTagsHidden(server, crew, true),
+                "the crew member was not added to the team");
+        PlayerTeam team = server.getScoreboard().getPlayerTeam(HideCommands.CREW_TEAM);
+        helper.assertTrue(team != null, "no '" + HideCommands.CREW_TEAM + "' team was created");
+        helper.assertTrue(team.getNameTagVisibility() == Team.Visibility.NEVER,
+                "the crew team's name tags are " + team.getNameTagVisibility() + ", not NEVER");
+        helper.assertTrue(team.getPlayers().contains(crew),
+                "the crew team does not contain " + crew);
+
+        HideCommands.setCrewNameTagsHidden(server, crew, false);
+        helper.assertTrue(server.getScoreboard().getPlayerTeam(HideCommands.CREW_TEAM) == null,
+                "the empty crew team should have been removed");
         helper.succeed();
     }
 

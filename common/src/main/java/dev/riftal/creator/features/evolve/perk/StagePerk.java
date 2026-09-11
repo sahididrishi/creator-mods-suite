@@ -1,6 +1,10 @@
 package dev.riftal.creator.features.evolve.perk;
 
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * The passive a player carries while they stand on one stage of the ladder.
@@ -40,7 +44,33 @@ public interface StagePerk {
         return 0;
     }
 
+    /**
+     * Called from the head of {@code Player#attack}, before vanilla reads
+     * {@code Attributes.ATTACK_DAMAGE} - so a perk that wants to change the damage of <em>this</em>
+     * swing can still write the modifier here and have it counted.
+     *
+     * @return true when the perk did something
+     */
+    default boolean onAttack(ServerPlayer player, Entity target) {
+        return false;
+    }
+
     /** Called when the player leaves this stage, so any per-player bookkeeping can be dropped. */
     default void revoke(ServerPlayer player) {
+    }
+
+    /**
+     * Drops every player's bookkeeping. Called when a server starts or {@code /reload} re-arms the
+     * heartbeat: a perk map that outlives a world is a slow leak and, worse, hands the next world's
+     * player the previous one's half-charged state.
+     */
+    default void clearAll() {
+    }
+
+    /**
+     * Drops the bookkeeping of everyone not in {@code onlinePlayerIds}. Called once per heartbeat,
+     * so a player who logs out mid-charge does not stay in the map until the server stops.
+     */
+    default void retain(Set<UUID> onlinePlayerIds) {
     }
 }

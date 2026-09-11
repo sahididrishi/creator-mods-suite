@@ -11,6 +11,7 @@ import dev.riftal.creator.features.rules.api.RuleRegistry;
 import dev.riftal.creator.features.rules.preset.RulePreset;
 import dev.riftal.creator.features.rules.preset.RulePresets;
 import dev.riftal.creator.features.rules.rules.HeartsCurrencyRule;
+import dev.riftal.creator.features.rules.rules.RandomDropsRule;
 import dev.riftal.creator.features.rules.rules.RandomItems;
 import dev.riftal.creator.features.rules.shop.ShopOffers;
 import net.minecraft.ChatFormatting;
@@ -75,7 +76,8 @@ public final class RuleCommand {
                         .suggests(RULE_IDS)
                         .then(CommandHelper.literal("on").executes(ctx -> set(ctx, true)))
                         .then(CommandHelper.literal("off").executes(ctx -> set(ctx, false)))
-                        .then(CommandHelper.literal("toggle").executes(RuleCommand::toggle)));
+                        .then(CommandHelper.literal("toggle").executes(RuleCommand::toggle))
+                        .then(CommandHelper.literal("fire").executes(RuleCommand::fire)));
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> shopTree() {
@@ -105,6 +107,15 @@ public final class RuleCommand {
         return report(ctx, id, RuleManager.toggle(id));
     }
 
+    /**
+     * {@code /rule item_roulette fire} - do the thing now instead of at the end of the timer. The
+     * 60-second roulette and the 30-second shuffle are otherwise impossible to film in one take.
+     */
+    private static int fire(CommandContext<CommandSourceStack> ctx) {
+        String id = StringArgumentType.getString(ctx, "rule");
+        return report(ctx, id, RuleManager.fire(id));
+    }
+
     private static int report(CommandContext<CommandSourceStack> ctx, String id, RuleManager.Result result) {
         CommandSourceStack source = ctx.getSource();
         return switch (result) {
@@ -120,6 +131,12 @@ public final class RuleCommand {
                     Component.translatable("commands.creator_rules.unknown", id));
             case NO_SERVER -> CommandHelper.error(source,
                     Component.translatable("commands.creator_rules.no_world"));
+            case FIRED -> CommandHelper.success(source,
+                    Component.translatable("commands.creator_rules.fired", name(id)));
+            case INACTIVE -> CommandHelper.error(source,
+                    Component.translatable("commands.creator_rules.inactive", name(id)));
+            case UNSUPPORTED -> CommandHelper.error(source,
+                    Component.translatable("commands.creator_rules.unsupported", name(id)));
         };
     }
 
@@ -221,6 +238,9 @@ public final class RuleCommand {
         // so re-reading the presets means re-reading the shop and the tag-filtered item pool too.
         ShopOffers.clear();
         RandomItems.invalidate();
+        if (RuleRegistry.byId("random_drops") instanceof RandomDropsRule randomDrops) {
+            randomDrops.invalidate();
+        }
         int count = RulePresets.reload(ctx.getSource().getServer());
         return CommandHelper.success(ctx.getSource(),
                 Component.translatable("commands.creator_rules.preset.reloaded", count));

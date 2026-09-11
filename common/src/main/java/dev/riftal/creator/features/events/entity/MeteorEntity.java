@@ -18,6 +18,9 @@ import net.minecraft.world.phys.Vec3;
  */
 public class MeteorEntity extends Entity {
 
+    /** Hard lifetime cap in ticks; the plan's own figure was 80 and the flight phase is 60. */
+    public static final int MAX_TICKS = 200;
+
     private static final String KEY_TARGET_X = "target_x";
     private static final String KEY_TARGET_Y = "target_y";
     private static final String KEY_TARGET_Z = "target_z";
@@ -67,6 +70,14 @@ public class MeteorEntity extends Entity {
     @Override
     public void tick() {
         super.tick();
+        // Self-destruct. MeteorEvent owns the impact decision, so nothing else ever discards a
+        // boulder whose event has gone away - and this one has no gravity, no collision and three
+        // particle packets a tick, so an orphan would fly in a straight line and spray particles
+        // forever. MAX_TICKS is comfortably past the 60-tick flight phase.
+        if (this.tickCount > MAX_TICKS || this.getY() < this.level().getMinBuildHeight() - 8) {
+            this.discard();
+            return;
+        }
         Vec3 motion = this.getDeltaMovement();
         this.setPos(this.getX() + motion.x, this.getY() + motion.y, this.getZ() + motion.z);
 
@@ -79,6 +90,17 @@ public class MeteorEntity extends Entity {
             serverLevel.sendParticles(ParticleTypes.LAVA, pos.x, pos.y, pos.z, 2,
                     0.2D, 0.2D, 0.2D, 0.0D);
         }
+    }
+
+    /**
+     * Never written to disk. The event's resume path already handles "the boulder is gone" by
+     * jumping to the impact at the aim point, and that is the only sane outcome for a restart
+     * mid-flight - persisting it instead risks an orphan in an unloaded chunk that the event has
+     * already forgotten about.
+     */
+    @Override
+    public boolean shouldBeSaved() {
+        return false;
     }
 
     @Override

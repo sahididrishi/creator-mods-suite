@@ -80,8 +80,13 @@ public class VaultKeeper extends Monster {
 
     // ------------------------------------------------------------- altar bond
 
-    /** Binds this Keeper to the altar at {@code pos}; its death unseals that altar's chests. */
-    public void bindToAltar(BlockPos pos) {
+    /**
+     * Binds this Keeper to the altar at {@code pos}; its death unseals that altar's chests.
+     *
+     * @param pos the altar, or {@code null} to cut the Keeper loose - no tether, and its death
+     *            reports to nothing
+     */
+    public void bindToAltar(@Nullable BlockPos pos) {
         this.altarPos = pos == null ? null : pos.immutable();
     }
 
@@ -110,6 +115,28 @@ public class VaultKeeper extends Monster {
         super.customServerAiStep();
         float max = getMaxHealth();
         this.bossEvent.setProgress(max > 0.0F ? getHealth() / max : 0.0F);
+        tetherToAltar();
+    }
+
+    /**
+     * The hard leash, run every tick whatever the Keeper is doing.
+     *
+     * <p>Deliberately <em>not</em> inside {@link KeeperGuardAltarGoal}: a goal only ticks while it
+     * is the selected goal, and the walk-home goal steps aside as soon as the Keeper has a target -
+     * which is exactly the situation a player kiting it up the entrance shaft creates. The soft
+     * "walk back" behaviour stays in the goal; the yank does not.
+     */
+    private void tetherToAltar() {
+        if (this.altarPos == null) {
+            return;
+        }
+        double distanceSqr = distanceToSqr(this.altarPos.getX() + 0.5D, this.altarPos.getY() + 0.5D,
+                this.altarPos.getZ() + 0.5D);
+        if (distanceSqr <= TETHER_RADIUS * TETHER_RADIUS) {
+            return;
+        }
+        getNavigation().stop();
+        teleportTo(this.altarPos.getX() + 0.5D, this.altarPos.getY() + 1.0D, this.altarPos.getZ() + 0.5D);
     }
 
     @Override
@@ -130,6 +157,11 @@ public class VaultKeeper extends Monster {
     /**
      * Tells the bound altar immediately rather than making it wait for its 20-tick poll, so the
      * chest cracks open on the same tick the Keeper falls over.
+     *
+     * <p>Reports <em>this</em> Keeper's UUID, and the altar drops the report unless it is the
+     * Keeper it is actually waiting for. Without that check any leftover Keeper from an earlier
+     * take - one adopted away, one that survived a {@code /vault reset} in an unloaded chunk, one
+     * caught by a stray {@code /kill} - would crack the chest open mid-fight.
      */
     private void notifyAltar() {
         if (this.altarPos == null || !(level() instanceof ServerLevel serverLevel)) {
@@ -139,7 +171,7 @@ public class VaultKeeper extends Monster {
             return;
         }
         if (serverLevel.getBlockEntity(this.altarPos) instanceof CursedAltarBlockEntity altar) {
-            altar.onKeeperDead(serverLevel);
+            altar.onKeeperDead(serverLevel, getUUID());
         }
     }
 

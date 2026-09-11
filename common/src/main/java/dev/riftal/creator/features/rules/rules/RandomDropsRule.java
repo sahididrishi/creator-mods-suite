@@ -8,6 +8,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
@@ -34,12 +35,14 @@ import static dev.riftal.creator.Constants.LOG;
  * one-second stall on camera.
  *
  * <p>A block that normally drops nothing still drops nothing, and items in
- * {@code #creator_rules:never_random} are never handed out.
+ * {@code #creator_rules:never_random} are never handed out - the mapping is rebuilt whenever the
+ * data packs are reloaded, so editing that tag takes effect without a restart.
  */
 public final class RandomDropsRule implements Rule {
 
     private RandomDropsMapping mapping;
     private long mappingSeed = Long.MIN_VALUE;
+    private ResourceManager mappingManager;
 
     @Override
     public String id() {
@@ -54,14 +57,26 @@ public final class RandomDropsRule implements Rule {
 
     @Override
     public void onDisable(RuleContext ctx) {
+        invalidate();
+    }
+
+    /**
+     * Forces the mapping to be rebuilt. {@code /rule reload} calls this because the target list is
+     * filtered by {@code #creator_rules:never_random}, which a data pack can change under us.
+     */
+    public void invalidate() {
         mapping = null;
         mappingSeed = Long.MIN_VALUE;
+        mappingManager = null;
     }
 
     /** Builds (once per world) and returns the mapping. Public so the GameTest can assert on it. */
     public RandomDropsMapping mappingFor(RuleContext ctx) {
         long seed = ctx.worldSeed();
-        if (mapping != null && seed == mappingSeed) {
+        // The manager instance is vanilla's own "the data packs have been reloaded" signal, so a
+        // plain /reload rebuilds the mapping against the new #never_random contents for free.
+        ResourceManager manager = ctx.server().getResourceManager();
+        if (mapping != null && seed == mappingSeed && manager == mappingManager) {
             return mapping;
         }
         List<String> sources = new ArrayList<>();
@@ -82,6 +97,7 @@ public final class RandomDropsRule implements Rule {
 
         mapping = RandomDropsMapping.build(seed, sources, targets);
         mappingSeed = seed;
+        mappingManager = manager;
         LOG.info("[rules] random_drops mapped {} source(s) onto {} item(s)",
                 mapping.size(), targets.size());
         return mapping;

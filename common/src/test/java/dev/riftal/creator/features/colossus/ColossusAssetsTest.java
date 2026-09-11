@@ -2,6 +2,7 @@ package dev.riftal.creator.features.colossus;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonArray;
@@ -15,8 +16,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import org.junit.jupiter.api.Assumptions;
@@ -158,6 +161,37 @@ class ColossusAssetsTest {
     @Test
     void theMinionModelIsAValidGeckoLibModel() {
         assertGeometryIsSane("ashen_minion", 64);
+    }
+
+    /**
+     * Locators are an API, not decoration: plan section 6 names {@code hand_left_tip},
+     * {@code hand_right_tip} and {@code mouth} as the anchors a particle keyframe or a
+     * {@code model.getBone(..)} lookup hangs dust and breath off. They cost nothing in the model
+     * and are impossible to add later without re-exporting from Blockbench, so their absence is
+     * pinned here rather than discovered by whoever writes the first hand-anchored effect.
+     */
+    @Test
+    void theColossusModelCarriesTheEffectLocators() {
+        JsonObject geometry = geometry("ashen_colossus");
+        Map<String, String> owners = new LinkedHashMap<>();
+        for (JsonElement element : geometry.getAsJsonArray("bones")) {
+            JsonObject bone = element.getAsJsonObject();
+            if (!bone.has("locators")) {
+                continue;
+            }
+            for (String locator : bone.getAsJsonObject("locators").keySet()) {
+                assertEquals(3, bone.getAsJsonObject("locators").getAsJsonArray(locator).size(),
+                        locator + " must be a [x, y, z] offset");
+                assertNull(owners.put(locator, bone.get("name").getAsString()),
+                        "duplicate locator " + locator);
+            }
+        }
+        assertEquals("hand_left", owners.get("hand_left_tip"),
+                "hand_left_tip must hang off the left hand, got " + owners);
+        assertEquals("hand_right", owners.get("hand_right_tip"),
+                "hand_right_tip must hang off the right hand, got " + owners);
+        assertEquals("head", owners.get("mouth"),
+                "mouth must hang off the head, got " + owners);
     }
 
     @Test

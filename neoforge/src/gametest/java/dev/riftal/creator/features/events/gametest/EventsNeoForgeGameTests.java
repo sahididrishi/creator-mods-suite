@@ -64,4 +64,19 @@ public class EventsNeoForgeGameTests {
     public void voidPlaneClampsAndHandsOverToHold(GameTestHelper helper) {
         EventsGameTests.voidPlaneClampsAndHandsOverToHold(helper);
     }
+
+    @GameTest(template = "empty", timeoutTicks = 400, batch = "creator_events_meteor_impact")
+    public void meteorImpactCreatesChest(GameTestHelper helper) {
+        EventsGameTests.meteorImpactCreatesChest(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 400, batch = "creator_events_siege")
+    public void siegeSpawnsFirstWave(GameTestHelper helper) {
+        EventsGameTests.siegeSpawnsFirstWave(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 200, batch = "creator_events_dawn")
+    public void bloodMoonSkipBringsDawn(GameTestHelper helper) {
+        EventsGameTests.bloodMoonSkipBringsDawn(helper);
+    }
 }

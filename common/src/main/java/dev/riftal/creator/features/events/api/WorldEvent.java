@@ -69,6 +69,17 @@ public interface WorldEvent {
         return SkyTint.NONE;
     }
 
+    /**
+     * Sound event id the client should loop while this event runs ({@code ""} for none).
+     *
+     * <p>The client owns the loop: it fades in when this starts returning an id and fades out the
+     * moment it stops, which is why nothing here has to send a stop-sound packet. A repeated
+     * server-side one-shot is not a substitute - it stacks per player and outlives the event.
+     */
+    default String ambientLoop() {
+        return "";
+    }
+
     /** 0..1 for the HUD bar. */
     default float progress(EventContext ctx, EventPhase phase, int phaseTick) {
         if (phase.durationTicks() <= 0) {

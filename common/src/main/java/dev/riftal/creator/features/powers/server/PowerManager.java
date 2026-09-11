@@ -2,6 +2,7 @@ package dev.riftal.creator.features.powers.server;
 
 import dev.riftal.creator.core.data.PlayerData;
 import dev.riftal.creator.core.net.Payloads;
+import dev.riftal.creator.core.sched.ScheduledTask;
 import dev.riftal.creator.core.sched.TickScheduler;
 import dev.riftal.creator.core.util.Fx;
 import dev.riftal.creator.core.util.Selection;
@@ -49,14 +50,27 @@ import java.util.UUID;
  */
 public final class PowerManager {
 
-    /** How often the whole-loadout resync sweep runs. Cheap: it only sends when something differs. */
-    private static final int SYNC_PERIOD_TICKS = 20;
-
     /** How often stray {@code NoAI} mobs left by a crash are swept up. */
     private static final int STRAY_SWEEP_PERIOD_TICKS = 200;
 
-    /** Ceiling on ability packets accepted from one player in one tick. */
-    private static final int MAX_USES_PER_TICK = 10;
+    /**
+     * Ceiling on ability packets accepted from one player in one tick.
+     *
+     * <p>No human input can exceed one press per tick; the allowance is only there so the handful
+     * of {@code consumeClick()} presses a client drains after a lag spike are all honoured.
+     */
+    private static final int MAX_USES_PER_TICK = 4;
+
+    /**
+     * How long a refused ability is ignored for, after the refusal has been sent back.
+     *
+     * <p>{@code canUse} is not always cheap - Ender Pull's is a 20-block entity ray-cast - and a
+     * refusal starts no cooldown, so a held or scripted key with nothing under the crosshair would
+     * otherwise buy an unbounded number of those ray-casts every tick, for ever. The client has
+     * already been told the truth by then; a fifth of a second of silence costs a real player
+     * nothing.
+     */
+    private static final int REFUSAL_LOCKOUT_TICKS = 4;
 
     private static PlayerData<PlayerPowers> data;
 
@@ -65,12 +79,17 @@ public final class PowerManager {
 
     private static final Map<UUID, RateWindow> RATE = new HashMap<>();
 
+    /** The per-tick driver, so a {@code /reload} can tell "already running" from "world starting". */
+    private static ScheduledTask ticker;
+
     private record SyncSnapshot(PlayerPowers powers, ServerPlayer player) {
     }
 
     private static final class RateWindow {
         private long tick;
         private int count;
+        /** Ability id to the tick its refusal lockout ends. At most six entries. */
+        private final Map<ResourceLocation, Long> refusedUntil = new HashMap<>();
     }
 
     /** Declares the attachment. Called from {@code PowersFeature#registerContent()}. */
@@ -91,9 +110,14 @@ public final class PowerManager {
         return data == null ? PlayerPowers.EMPTY : data.get(player);
     }
 
+    /**
+     * Writes a loadout back, dropping cooldown entries that have already elapsed or belong to an
+     * ability the player no longer has. Without the prune the map keeps every id the player was
+     * ever granted, for the life of the save file.
+     */
     private static void store(ServerPlayer player, PlayerPowers powers) {
         if (data != null) {
-            data.set(player, powers);
+            data.set(player, powers.pruned(gameTime(player)));
         }
     }
 
@@ -177,7 +201,8 @@ public final class PowerManager {
         long now = gameTime(player);
         long readyAt = CooldownMath.readyAt(now, remainingTicks);
         store(player, powersOf(player).withReadyAt(ability.id(), readyAt));
-        sendCooldown(player, ability.id(), now - Math.max(1, ability.cooldownTicks() - remainingTicks), readyAt, now);
+        sendCooldown(player, ability.id(),
+                now - Math.max(1, ability.cooldownTicks() - remainingTicks), readyAt, now, false);
         sync(player);
     }
 
@@ -186,15 +211,16 @@ public final class PowerManager {
     /**
      * The keybind path. Validates everything, then fires.
      *
-     * <p>A rejection is never announced: the client just gets the true cooldown back so its sweep
-     * snaps to the truth. Chat noise during a take is the one thing this whole suite exists to
-     * avoid.
+     * <p>A rejection is never announced in chat: the client gets a {@link CooldownStartPayload}
+     * flagged {@code refused}, which snaps its sweep back to the truth and shakes the slot. Chat
+     * noise during a take is the one thing this whole suite exists to avoid.
      */
     public static UseResult handleUse(ServerPlayer player, ResourceLocation abilityId) {
         if (player.isRemoved() || !(player.level() instanceof ServerLevel level)) {
             return UseResult.CANNOT_USE;
         }
-        if (!withinRateLimit(player, level.getGameTime())) {
+        long now = level.getGameTime();
+        if (!withinRateLimit(player, now)) {
             return UseResult.CANNOT_USE;
         }
 
@@ -204,7 +230,6 @@ public final class PowerManager {
         }
         Ability ability = found.get();
 
-        long now = level.getGameTime();
         PlayerPowers powers = powersOf(player);
         if (!powers.has(ability.id())) {
             return UseResult.NOT_GRANTED;
@@ -213,11 +238,19 @@ public final class PowerManager {
             // Resync, not a new cooldown: rebuild the original window so the client's sweep snaps
             // back to the truth instead of restarting from full.
             long readyAt = powers.readyTick(ability.id(), now);
-            sendCooldown(player, ability.id(), readyAt - ability.cooldownTicks(), readyAt, now);
+            sendCooldown(player, ability.id(), readyAt - ability.cooldownTicks(), readyAt, now, true);
             return UseResult.ON_COOLDOWN;
         }
+        // Inside the lockout the refusal has already been answered once; do not pay for canUse
+        // again and do not send a second identical correction.
+        if (inRefusalLockout(player, ability.id(), now)) {
+            return UseResult.CANNOT_USE;
+        }
         if (!ability.canUse(player)) {
-            sendCooldown(player, ability.id(), now, now, now);
+            // startedAt == readyAt == now is "no cooldown at all", and `refused` is what tells the
+            // HUD to shake the slot instead of chiming as though something had just come back.
+            sendCooldown(player, ability.id(), now, now, now, true);
+            lockOutRefusal(player, ability.id(), now);
             return UseResult.CANNOT_USE;
         }
 
@@ -249,7 +282,7 @@ public final class PowerManager {
         }
         long readyAt = CooldownMath.readyAt(now, ability.cooldownTicks());
         store(player, powersOf(player).withReadyAt(ability.id(), readyAt));
-        sendCooldown(player, ability.id(), now, readyAt, now);
+        sendCooldown(player, ability.id(), now, readyAt, now, false);
         markSynced(player);
     }
 
@@ -263,6 +296,28 @@ public final class PowerManager {
         return window.count <= MAX_USES_PER_TICK;
     }
 
+    /** True while this ability's last refusal is still being served. */
+    private static boolean inRefusalLockout(ServerPlayer player, ResourceLocation abilityId, long now) {
+        RateWindow window = RATE.get(player.getUUID());
+        if (window == null) {
+            return false;
+        }
+        Long until = window.refusedUntil.get(abilityId);
+        if (until == null) {
+            return false;
+        }
+        if (now >= until) {
+            window.refusedUntil.remove(abilityId);
+            return false;
+        }
+        return true;
+    }
+
+    private static void lockOutRefusal(ServerPlayer player, ResourceLocation abilityId, long now) {
+        RATE.computeIfAbsent(player.getUUID(), id -> new RateWindow())
+                .refusedUntil.put(abilityId, now + REFUSAL_LOCKOUT_TICKS);
+    }
+
     // ---------------------------------------------------------------- ground pound impact
 
     /** Called by {@code ActiveEffects} the tick a pounding player touches down. */
@@ -272,12 +327,19 @@ public final class PowerManager {
         BlockState floor = level.getBlockState(below);
 
         for (LivingEntity victim : Selection.livingAround(level, origin, radius, player)) {
+            // Armour stands, the creator's own pets and team-mates are scenery, not targets.
+            if (!AbilityFx.canAffect(player, victim)) {
+                continue;
+            }
             double distance = victim.position().distanceTo(origin);
             float falloff = CooldownMath.poundFalloff(distance, radius);
             if (falloff <= 0.0F) {
                 continue;
             }
             victim.hurt(level.damageSources().playerAttack(player), 8.0F * falloff);
+            if (AbilityFx.isBoss(victim)) {
+                continue;
+            }
             Vec3 away = victim.position().subtract(origin);
             Vec3 flat = new Vec3(away.x, 0.0D, away.z);
             Vec3 push = (flat.lengthSqr() < 1.0E-4D ? new Vec3(1.0D, 0.0D, 0.0D) : flat.normalize()).scale(1.2D);
@@ -334,14 +396,19 @@ public final class PowerManager {
     }
 
     private static void sendCooldown(ServerPlayer player, ResourceLocation id, long startedAt,
-                                     long readyAt, long now) {
-        send(player, new CooldownStartPayload(id, startedAt, readyAt, now));
+                                     long readyAt, long now, boolean refused) {
+        send(player, new CooldownStartPayload(id, startedAt, readyAt, now, refused));
     }
 
     /**
-     * Resyncs anyone whose client is out of date. This is how a join, a respawn and a dimension
-     * change all get their HUD back without a loader-specific player event: the snapshot for a
-     * fresh {@code ServerPlayer} instance never matches, so the next sweep sends one.
+     * Resyncs anyone whose client is out of date.
+     *
+     * <p>Join, respawn and dimension change each push their own sync from
+     * {@code PowersPlayerListMixin} / {@code PowersServerPlayerMixin} so the row is on screen on the
+     * first frame of the new level. This sweep is the safety net behind them - anything that
+     * changes a loadout without going through {@link #sync(ServerPlayer)}, and any player whose
+     * hook did not fire. It runs every tick and costs one map lookup plus one record comparison per
+     * online player, which is nothing next to the {@code ActiveEffects} tick it sits beside.
      */
     private static void syncDirtyPlayers(MinecraftServer server) {
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
@@ -364,31 +431,94 @@ public final class PowerManager {
     // ---------------------------------------------------------------- lifecycle
 
     /**
-     * (Re)starts the per-tick driver. Called every time the server builds its command dispatcher,
-     * which is once at start-up and once per {@code /reload} - the one loader-neutral hook that
-     * fires on a live server. Cancels the previous task first so a reload never doubles it up.
+     * Arms the per-tick driver for a world that is starting.
+     *
+     * <p>Called every time the server builds its command dispatcher - once at start-up and once per
+     * {@code /reload} - because that is the one loader-neutral hook core exposes that fires on a
+     * live server. A dispatcher rebuild is <em>not</em> a new world, though, so when the driver is
+     * already running this does nothing at all: a {@code /reload} mid-take must not cancel the dash
+     * trail that is in flight, drop the dome the creator is standing in, or thaw a frozen crowd.
+     * The state wipe belongs to {@link #onServerStopping(MinecraftServer)}.
      */
     public static void startTicking() {
+        ActiveEffects.setImpactHandler(PowerManager::onPoundImpact);
+        if (ticker != null && !ticker.isDone() && TickScheduler.server() != null) {
+            return;
+        }
+
+        // A world is starting. TickScheduler#clear() drops tasks without marking them done, so the
+        // handle above can be stale after a previous session; clear by tag as well, and wipe any
+        // state a crashed session left in the static maps.
         TickScheduler.cancelAll(PowersFeature.taskTag());
         ActiveEffects.reset();
         SYNCED.clear();
         RATE.clear();
-        ActiveEffects.setImpactHandler(PowerManager::onPoundImpact);
 
-        TickScheduler.runRepeating(1, -1, task -> {
+        ticker = TickScheduler.runRepeating(1, -1, task -> {
             MinecraftServer server = TickScheduler.server();
             if (server == null) {
                 return;
             }
             ActiveEffects.tick(server);
-            long now = server.overworld().getGameTime();
-            if (now % SYNC_PERIOD_TICKS == 0L) {
-                syncDirtyPlayers(server);
-            }
-            if (now % STRAY_SWEEP_PERIOD_TICKS == 0L) {
+            syncDirtyPlayers(server);
+            if (server.overworld().getGameTime() % STRAY_SWEEP_PERIOD_TICKS == 0L) {
                 ActiveEffects.releaseStrayFrozenMobs(server);
             }
         }).tag(PowersFeature.taskTag());
+    }
+
+    // ---------------------------------------------------------------- player lifecycle
+
+    /**
+     * A client just finished joining. Pushing the sync from here rather than waiting for the sweep
+     * is what puts the row on screen on the first frame of the world instead of up to a second
+     * later.
+     */
+    public static void onPlayerJoin(ServerPlayer player) {
+        sync(player);
+    }
+
+    /**
+     * A respawn hands out a brand-new {@code ServerPlayer}, so the client's HUD has to be rebuilt
+     * and whatever the dead one was carrying has to be handed back.
+     */
+    public static void onPlayerRespawn(ServerPlayer oldPlayer, ServerPlayer newPlayer) {
+        ActiveEffects.clearFor(oldPlayer);
+        SYNCED.remove(oldPlayer.getUUID());
+        sync(newPlayer);
+    }
+
+    /** Logout: end the dome, drop the pound, thaw this player's mobs, forget their bookkeeping. */
+    public static void onPlayerLogout(ServerPlayer player) {
+        ActiveEffects.clearFor(player);
+        SYNCED.remove(player.getUUID());
+        RATE.remove(player.getUUID());
+    }
+
+    /**
+     * Dimension change. The client rebuilds its level on a respawn packet, so it needs the loadout
+     * again - and the fresh {@code serverGameTime} in the sync is what keeps the sweeps drawn
+     * against the right clock.
+     */
+    public static void onDimensionChange(ServerPlayer player) {
+        sync(player);
+    }
+
+    /**
+     * The world is closing. Everything in this feature's static state points at entities of a level
+     * that is about to be discarded, so it all goes now rather than when the next world opens:
+     * domes hand their modifiers back to players who still exist, frozen mobs get their real AI
+     * flags back before they are written to disk, and nothing holds a {@code ServerLevel} alive.
+     */
+    public static void onServerStopping(MinecraftServer server) {
+        if (ticker != null) {
+            ticker.cancel();
+            ticker = null;
+        }
+        TickScheduler.cancelAll(PowersFeature.taskTag());
+        ActiveEffects.reset();
+        SYNCED.clear();
+        RATE.clear();
     }
 
     private PowerManager() {

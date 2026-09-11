@@ -12,6 +12,8 @@ import java.util.List;
  *
  * <p>Rules, in order:
  * <ol>
+ *   <li>the summon is a <em>schedule</em>, not a candidate: once it is due it wins outright
+ *       ({@link #summonIsDue});</li>
  *   <li>an attack whose phase gate is not met is never a candidate;</li>
  *   <li>an attack on cooldown is never a candidate;</li>
  *   <li>the attack that was used last is dropped whenever another candidate exists, so the boss
@@ -37,7 +39,6 @@ public final class AttackSelector {
     static final int SLAM_WEIGHT = 10;
     static final int LAVA_RAIN_NEAR_WEIGHT = 6;
     static final int LAVA_RAIN_FAR_WEIGHT = 40;
-    static final int SUMMON_WEIGHT = 12;
     static final int COMBO_WEIGHT = 14;
 
     /** Remaining cooldown ticks per attack. Immutable. */
@@ -79,6 +80,10 @@ public final class AttackSelector {
     /** As {@link #choose(BossPhase, double, Cooldowns, int, Deque, RandomSource)}, given only the last pick. */
     public static AttackKind choose(BossPhase phase, double distSq, Cooldowns cooldowns,
                                     int minionsAlive, AttackKind last, RandomSource random) {
+        if (summonIsDue(phase, cooldowns, minionsAlive)) {
+            return AttackKind.SUMMON;
+        }
+
         List<AttackKind> kinds = new ArrayList<>(4);
         List<Integer> weights = new ArrayList<>(4);
 
@@ -89,11 +94,6 @@ public final class AttackSelector {
         if (phase.index() >= BossPhase.P2.index() && cooldowns.ready(AttackKind.LAVA_RAIN)) {
             kinds.add(AttackKind.LAVA_RAIN);
             weights.add(distSq > FAR_RANGE_SQ ? LAVA_RAIN_FAR_WEIGHT : LAVA_RAIN_NEAR_WEIGHT);
-        }
-        if (phase.index() >= BossPhase.P2.index() && cooldowns.ready(AttackKind.SUMMON)
-                && minionsAlive < MINION_CAP) {
-            kinds.add(AttackKind.SUMMON);
-            weights.add(SUMMON_WEIGHT);
         }
         if (phase == BossPhase.P3 && cooldowns.ready(AttackKind.COMBO) && distSq <= COMBO_RANGE_SQ) {
             kinds.add(AttackKind.COMBO);
@@ -127,6 +127,23 @@ public final class AttackSelector {
             }
         }
         return kinds.get(kinds.size() - 1);
+    }
+
+    /**
+     * True when the summon is <em>owed</em>: phase 2 or later, its 20-second timer has run out and
+     * there is room under the minion cap.
+     *
+     * <p>The plan's MVP is "Summon 3 Ashen Minions every 20 s (cap 6 alive)" - a schedule, not a
+     * roll. As one weighted candidate among several it was neither: it used to carry a weight of 12
+     * against a lava-rain weight of 40 at the plan's own shooting distance, so the demo's "three
+     * minions rise at 0:20" beat could land several attack cycles late and could not be relied on
+     * for a take. So the summon is not weighted at all: when it is due it simply is the next
+     * attack, and the weighted pick decides only what the boss does in between.
+     */
+    public static boolean summonIsDue(BossPhase phase, Cooldowns cooldowns, int minionsAlive) {
+        return phase.index() >= BossPhase.P2.index()
+                && cooldowns.ready(AttackKind.SUMMON)
+                && minionsAlive < MINION_CAP;
     }
 
     private AttackSelector() {

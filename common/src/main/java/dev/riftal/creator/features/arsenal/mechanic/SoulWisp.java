@@ -16,6 +16,8 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -28,7 +30,7 @@ import java.util.UUID;
  */
 public final class SoulWisp {
 
-    /** Scheduler tag for every wisp flight. */
+    /** Scheduler tag for every wisp flight, so {@link #reset()} can wipe them all at once. */
     public static final ResourceLocation TASK_TAG = ArsenalFeature.res("soul_wisp");
 
     /**
@@ -47,12 +49,26 @@ public final class SoulWisp {
     /** Ticks the wisp takes to reach its killer. */
     public static final int FLIGHT_TICKS = 20;
 
+    /**
+     * Last game tick each killer played a wisp sound on, keyed by player.
+     *
+     * <p>One scythe swing through a pack launches three or four wisps in the same tick, from
+     * corpses a block or two apart. Four {@code SOUL_ESCAPE} at effectively one point is four times
+     * the amplitude - it clips - and twenty ticks later all four {@code soul_absorb} land on the
+     * same tick at the same player and clip again. The wisps themselves still all fly; only the
+     * duplicate sound in a tick is dropped.
+     */
+    private static final Map<UUID, Long> LAST_ESCAPE = new HashMap<>();
+    private static final Map<UUID, Long> LAST_ABSORB = new HashMap<>();
+
     /** Launches a wisp from {@code origin} towards {@code killer}. */
     public static void launch(ServerLevel level, Vec3 origin, ServerPlayer killer) {
         MinecraftServer server = killer.server;
         UUID killerId = killer.getUUID();
 
-        Fx.sound(level, origin, SoundEvents.SOUL_ESCAPE.value(), SoundSource.PLAYERS, 0.7F, 1.4F);
+        if (firstThisTick(LAST_ESCAPE, killerId, level.getGameTime())) {
+            Fx.sound(level, origin, SoundEvents.SOUL_ESCAPE.value(), SoundSource.PLAYERS, 0.7F, 1.4F);
+        }
 
         int[] tick = {0};
         TickScheduler.runRepeating(1, FLIGHT_TICKS, task -> {
@@ -80,7 +96,15 @@ public final class SoulWisp {
         grantHeadroom(player);
         player.setAbsorptionAmount(DamageMath.absorptionAfterKill(player.getAbsorptionAmount()));
         Fx.particles(level, ParticleTypes.SOUL, player.getEyePosition(), 8, 0.25D, 0.01D);
-        Fx.sound(level, player.position(), ArsenalFeature.soulAbsorb(), SoundSource.PLAYERS, 0.8F, 1.0F);
+        if (firstThisTick(LAST_ABSORB, player.getUUID(), level.getGameTime())) {
+            Fx.sound(level, player.position(), ArsenalFeature.soulAbsorb(), SoundSource.PLAYERS, 0.8F, 1.0F);
+        }
+    }
+
+    /** True the first time {@code player} asks on game tick {@code now}; false for repeats. */
+    private static boolean firstThisTick(Map<UUID, Long> seen, UUID player, long now) {
+        Long last = seen.put(player, now);
+        return last == null || last != now;
     }
 
     /**
@@ -96,6 +120,17 @@ public final class SoulWisp {
         }
         ceiling.addTransientModifier(new AttributeModifier(HEADROOM_ID, DamageMath.ABSORPTION_CAP,
                 AttributeModifier.Operation.ADD_VALUE));
+    }
+
+    /**
+     * Drops every wisp in flight and the per-player sound bookkeeping. Called from
+     * {@link dev.riftal.creator.features.arsenal.ArsenalRuntime} when the server stops - a wisp
+     * task captures the {@code ServerLevel} it was launched in.
+     */
+    public static void reset() {
+        LAST_ESCAPE.clear();
+        LAST_ABSORB.clear();
+        TickScheduler.cancelAll(TASK_TAG);
     }
 
     private SoulWisp() {

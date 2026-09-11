@@ -63,6 +63,13 @@ public final class NoStopMovingRule implements Rule {
     }
 
     @Override
+    public void onPlayerChangedDimension(RuleContext ctx, ServerPlayer player) {
+        // A portal freezes the player while the far side loads; without this the stillness counter
+        // can put them into the damage loop for something they did not do.
+        tracker.grace(player.getUUID(), RESPAWN_GRACE_TICKS);
+    }
+
+    @Override
     public void tick(RuleContext ctx) {
         Set<UUID> seen = new HashSet<>();
         for (ServerPlayer player : ctx.players()) {
@@ -83,8 +90,8 @@ public final class NoStopMovingRule implements Rule {
                 player.hurt(player.serverLevel().damageSources().magic(), DAMAGE);
             }
         }
-        if (tracker.size() > seen.size()) {
-            tracker.retainAll(seen);
-        }
+        // Unconditionally, not only when the map is larger: one player leaving as another joins
+        // leaves the sizes equal and the departed player's entry behind for the rest of the session.
+        tracker.retainAll(seen);
     }
 }

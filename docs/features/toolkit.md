@@ -16,21 +16,37 @@ designed so that *nothing* of the tooling ends up in the footage.
 | System | What you get |
 |---|---|
 | **Take recorder** | `REC TAKE 003  00:12.3` top-left, a take number that survives a restart, marks with wall-clock + RTA + server tick, one plain-text log per take on disk. |
-| **Mark key (`M`)** | Drops a mark without opening chat. The HUD flashes `MARK 2` for two seconds; nothing is written to chat. |
+| **Mark key (`M`)** | Drops a mark without opening chat. The HUD flashes `MARK 2` for two seconds; nothing is written to chat. A real `KeyMapping`, so it is listed in Options > Controls and can be rebound away from Xaero's/JourneyMap. |
 | **Freeze** | `mobs` — a true pause (AI, gravity, age, fire, despawn timers all stop, nothing written to entity NBT). `players` — non-op crew pinned in place, ops stay mobile. `all` — vanilla `/tick freeze`. |
 | **Waves** | A perfect ring of mobs facing inward, or a uniform scatter, spawned in one command and removed in one command. |
 | **Arena snapshots** | Save a volume (blocks *and* the props standing in it), trash it on camera, restore it block-for-block between takes. |
 | **Camera bookmarks** | Stand where the shot is, save it, and any crew member can snap to that exact position, yaw and pitch — including across dimensions. |
-| **Clean frame** | Hide the HUD, the chat log and every name tag, per player. |
+| **Clean frame** | Hide the HUD, the chat log and every name tag, per player and with no permission needed. An op can additionally blank the crew's name tags for cameras running a *vanilla* client, through a scoreboard team. |
 | **Silent commands** | Command feedback moves to the action bar and the `[Creator: …]` op broadcast stops. |
 | **Cheats** | `god`, `fly`, `heal`, `clear` — `god` and `fly` stick across death and relog. |
 
 ---
 
+## Registered content
+
+The toolkit registers **nothing in a game registry**: no blocks, no items, no entity types, no
+sounds, no particles, no creative tab, no loot tables and no worldgen. What it does declare:
+
+| Mechanism | Id |
+|---|---|
+| Payloads (C2S) | `creator_toolkit:mark_pressed` (re-checks permission level 2 and rate-limits to one press per 5 ticks), `creator_toolkit:request_sync` (rate-limited; it only ever sends the sender their own state back, so it needs no permission) |
+| Payloads (S2C) | `creator_toolkit:take_state`, `creator_toolkit:freeze_state`, `creator_toolkit:hide_state` |
+| Player data attachment | `creator_toolkit:cheats` — the `god` / `fly` flags, `copyOnDeath` |
+| Saved data | `creatormods_toolkit` in the overworld's data storage (take number, arenas, cameras) |
+| Key mapping | `key.creator_toolkit.mark`, default **M**, category `key.categories.creator_toolkit` |
+| Scoreboard team | `creator_toolkit_crew`, created on demand by `hide nametags <bool> <targets>` |
+
 ## Commands
 
-Root: **`/toolkit`**. The root itself is open so a crew member can read the clapperboard; everything
-that *changes* something is permission level 2 (op).
+Root: **`/toolkit`**. The root itself is open, and so is anything that only ever changes the
+caller's own screen — `take status` and the three `hide` switches — so a non-op camera operator can
+read the clapperboard and clean their own frame. Everything that changes the world, another player
+or the server is permission level 2 (op).
 
 | Command | Perm | What it does | Feedback |
 |---|---|---|---|
@@ -46,21 +62,22 @@ that *changes* something is permission level 2 (op).
 | `/toolkit wave spawn <entity> <1..200> <0..64> [ring\|random [centre]]` | 2 | Spawns a wave; default mode is `ring`, default centre is the caller | `Spawned 24 minecraft:zombie in ring r=10.0` |
 | `/toolkit wave clear` | 2 | Discards every entity the toolkit spawned in this level | `Cleared 24 wave entities` |
 | `/toolkit arena save <name>` | 2 | Quick-save a 25×9×25 box around you (±12 horizontal, −2…+6 vertical) | `Arena 'ring' saved (25x9x25, 24 entities)` |
-| `/toolkit arena save <name> <from> <to>` | 2 | Save the exact box (inclusive corners, ≤ 512 000 blocks) | as above |
+| `/toolkit arena save <name> <from> <to>` | 2 | Save the exact box (inclusive corners, ≤ 262 144 blocks = 64³) | as above |
 | `/toolkit arena reset <name>` | 2 | Put the blocks and the props back, remove everything else in the box | `Arena 'ring' reset (24 removed, 3 restored)` |
 | `/toolkit arena list` | 2 | Saved arenas and their sizes | `Arenas: ring (25x9x25)` |
 | `/toolkit arena delete <name>` | 2 | Forget one | `Arena 'ring' deleted` |
 | `/toolkit cam save <name>` | 2 | Save your exact position, yaw and pitch | `Camera 'hero' saved` |
-| `/toolkit cam go <name>` | 2 | Snap to that shot, cross-dimension aware | **nothing** — silent by design |
+| `/toolkit cam go <name> [glideTicks]` | 2 | Snap to that shot, cross-dimension aware. `glideTicks` is accepted for forward compatibility and ignored — the cut is instant | **nothing** — silent by design |
 | `/toolkit cam list` | 2 | The shot list | `Cameras: hero  minecraft:overworld  12.5 / 68.0 / -40.5` |
 | `/toolkit cam del <name>` | 2 | Forget one | `Camera 'hero' deleted` |
 | `/toolkit cheat god [true\|false]` | 2 | Invulnerable; no argument toggles | `God: ON` |
 | `/toolkit cheat fly [true\|false]` | 2 | Creative flight; no argument toggles | `Fly: ON` |
 | `/toolkit cheat heal` | 2 | Health, hunger, saturation, effects, fire, air | `Healed` |
 | `/toolkit cheat clear` | 2 | Empties your inventory | `Inventory cleared` |
-| `/toolkit hide hud <true\|false>` | 2 | Your HUD off (the same switch F1 uses) | `HUD hidden: ON` |
-| `/toolkit hide chat <true\|false>` | 2 | Your chat log stops drawing (you can still type) | `Chat hidden: ON` |
-| `/toolkit hide nametags <true\|false>` | 2 | No floating names in your frame | `Name tags hidden: ON` |
+| `/toolkit hide hud <true\|false>` | **0** | Your HUD off (the same switch F1 uses) | `HUD hidden: ON` |
+| `/toolkit hide chat <true\|false>` | **0** | Your chat log stops drawing (you can still type) | `Chat hidden: ON` |
+| `/toolkit hide nametags <true\|false>` | **0** | No floating names in your frame | `Name tags hidden: ON` |
+| `/toolkit hide nametags <true\|false> <targets>` | 2 | Puts those players in the `creator_toolkit_crew` scoreboard team with `nametagVisibility never`, so their tags are gone even for a camera on a **vanilla** client | `Name tags for Cam2: ON (scoreboard team, works on vanilla clients)` |
 | `/toolkit hide commands <true\|false>` | 2 | Silent mode, server wide | `Silent mode ON - feedback moves to the action bar` |
 | `/toolkit tphere <players>` | 2 | Pulls the crew to your exact spot **and angle** | `Teleported Cam2 to you` |
 
@@ -68,11 +85,14 @@ Names for `arena` and `cam` are **case-insensitive** (`Hero` and `hero` are the 
 
 ### Mark key
 
-Tapping **`M`** in-game sends a mark — no chat box, no echo, just the yellow `MARK n` flash. It is a
-raw key check (`KeyboardHandler#keyPress`), so it fires only when no screen is open, with no
-modifier held, on the main window, with a player in the world. The server re-checks permission
-level 2 and rate-limits to one press per 5 ticks. **It is not rebindable yet** — see
-[Known limits](#known-limits).
+Tapping **`M`** in-game sends a mark — no chat box, no echo, just the yellow `MARK n` flash.
+
+It is a real `KeyMapping` (`key.creator_toolkit.mark`, category *Creator Mods: Director's Toolkit*),
+so it shows up in **Options > Controls**, shows a conflict marker against Xaero's Minimap or
+JourneyMap (both of which also default to `M`), can be rebound, and is saved to `options.txt`. It is
+drained once per client tick with `consumeClick()`, so it fires only when no screen is open and a
+player is in the world, once per press. The server re-checks permission level 2 and rate-limits to
+one press per 5 ticks.
 
 ---
 
@@ -92,8 +112,10 @@ REC TAKE 003  00:12.3
 * `MARK n` flashes yellow for 2 s; after a take stops, the mark count stays on screen.
 * `FROZEN mobs` / `players` / `mobs+players` in aqua whenever a freeze is on.
 * The layer honours **F1** and `/toolkit hide hud`, so a clean frame really is clean.
-* A client that joins mid-take asks the server for the state once per world it enters, so a crew
-  member who logs in late still sees the right take number and timer.
+* The server pushes the take, freeze and hide state to every player as they finish loading in, so a
+  crew member who logs in late sees the right take number, timer and flags on their first frame. The
+  client also asks once per world it enters, as a backstop. Neither path rides on the HUD renderer —
+  that layer is skipped entirely while the HUD is hidden.
 
 Every string on the HUD is a `hud.creator_toolkit.*` translation key in
 `assets/creator_toolkit/lang/en_us.json`.
@@ -131,11 +153,13 @@ switch in `config/creatormods.json`:
 ```
 
 `false` (or `/creator feature toolkit false` + restart) removes the feature completely: no commands,
-no payloads, no HUD layer, no attachment, and all five mixins become no-ops. That is the clean
+no payloads, no HUD layer, no key mapping, no attachment, and all four mixins become no-ops. That is the clean
 single-feature recording mode.
 
 `/toolkit hide commands true` writes two **vanilla gamerules** through the core `SilentMode` helper —
-`sendCommandFeedback` and `logAdminCommands` — and restores them when you switch it back off.
+`sendCommandFeedback` and `logAdminCommands` — and restores them when you switch it back off. They
+are also restored at server shutdown if silent mode is still on, so closing the world mid-shoot never
+leaves them saved into `level.dat`.
 
 ---
 
@@ -164,10 +188,15 @@ A 45-second take, in the order a director actually types it:
 
 Tips from the plan's failure-mode list, all of which behave as described:
 
-* Dying mid-take does not stop the timer, and `god`/`fly` come back after the respawn.
+* Dying mid-take does not stop the timer, and `god`/`fly` are re-applied on the same tick as the
+  respawn — and re-armed on login, so they still work in a session where nobody re-typed the
+  command.
 * Frozen mobs stay frozen across a dimension change; nothing is written to their NBT, so releasing
   them is instant and a crash cannot leave them broken.
-* A crew member who joins *after* `/toolkit freeze players true` is locked where they land.
+* A crew member who joins *after* `/toolkit freeze players true` is locked where they land. Locks
+  record the dimension, so death, respawn, `tphere` or a portal re-pins them where they now are
+  rather than dragging them back to stale coordinates. A locked player also gets a
+  `JUMP_STRENGTH -1` modifier, so they cannot jump out of the drift budget and rubber-band.
 * Resetting an arena while somebody is standing in it never kills or moves them.
 * A restart comes back **unfrozen and not recording** on purpose; only the take *number*, the arenas
   and the cameras persist.
@@ -176,18 +205,20 @@ Tips from the plan's failure-mode list, all of which behave as described:
 
 ## Known limits
 
-* **The mark key is not rebindable** and does not appear in the Controls screen: the core library has
-  no key-mapping registry and the loader bootstraps are off-limits to feature code, so `M` is a raw
-  key check in a `KeyboardHandler` mixin. It clashes with map mods that also use `M` (Xaero's,
-  JourneyMap). `/toolkit take mark` is the workaround until core grows a key-mapping API.
 * **No camera glide.** `/toolkit cam go` is an instant snap; the eased glide and FOV in bookmarks are
-  stretch goals in the plan and deliberately not built.
-* **`/toolkit hide …` only affects the player who typed it.** An op cannot blank someone else's
-  screen — by design.
-* **A mob riding a boat is not frozen by `freeze mobs`** (vanilla ticks passengers on a different
-  path). Use `freeze all` for that shot.
-* **Arena volume is capped at 512 000 blocks**; a `StructureTemplate` holds the whole box in memory
-  and anything larger hitches the server on camera.
+  stretch goals in the plan and deliberately not built. The `[glideTicks]` argument is accepted so
+  the documented command line never errors, and ignored.
+* **No short aliases.** The plan's demo script types `/take start` and `/camgo hero`; here they are
+  `/toolkit take start` and `/toolkit cam go hero`. `CONTRACT.md` §5.2 gives each feature exactly one
+  command root, and eight features claiming short English verbs at the top level is how command trees
+  collide — with each other and with the admin and map mods a crew already runs.
+* **`/toolkit hide hud|chat` only affects the player who typed it** — by design; there is no target
+  argument. `hide nametags` is the exception and takes an op-only `<targets>` list, because the
+  scoreboard-team half of it is a server-wide change that a vanilla client can see.
+* **Arena volume is capped at 262 144 blocks (64³)**; `fillFromWorld` and `placeInWorld` both walk
+  every block synchronously inside one server tick and a `StructureTemplate` holds the whole box in
+  memory, so anything larger hitches the server on camera. The quick-save box (25×9×25) is the real
+  design point.
 
 ---
 
@@ -196,8 +227,8 @@ Tips from the plan's failure-mode list, all of which behave as described:
 | Kind | Where |
 |---|---|
 | JUnit (pure logic: ring/disc maths, timer formatting, log file, take state, cheat flags, arena and camera NBT, payload codecs) | `common/src/test/java/dev/riftal/creator/features/toolkit/` |
-| GameTest bodies (feature enabled, wave ring, mob freeze and release, arena reset, arena size cap, take recorder, camera bookmarks) | `common/src/main/java/dev/riftal/creator/features/toolkit/gametest/ToolkitGameTests.java` |
-| Loader stubs | `fabric/src/gametest/java/.../ToolkitFabricGameTests.java`, `neoforge/src/main/java/.../ToolkitNeoForgeGameTests.java` |
+| GameTest bodies (feature enabled, wave ring, mob freeze and release incl. a mob in a minecart, arena reset, arena size cap, take recorder and number wrap, camera bookmarks, `god` blocking damage, `tphere` rotation, silent-mode gamerules, the crew scoreboard team) | `common/src/gametest/java/dev/riftal/creator/features/toolkit/gametest/ToolkitGameTests.java` |
+| Loader stubs | `fabric/src/gametest/java/.../ToolkitFabricGameTests.java`, `neoforge/src/gametest/java/.../ToolkitNeoForgeGameTests.java` |
 
 Assets: see [`ASSETS.md`](../../common/src/main/java/dev/riftal/creator/features/toolkit/ASSETS.md)
 — this feature ships text only.

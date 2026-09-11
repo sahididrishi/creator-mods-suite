@@ -39,9 +39,31 @@ public final class ClientPowers {
     private static final int FLASH_TICKS = 5;
     private static final int DENY_SHAKE_TICKS = 8;
 
+    /**
+     * Ticks between one freshly granted slot landing on the HUD and the next.
+     *
+     * <p>Plan 03 beat 1: {@code /power all} and "the 6 icons pop in one by one with a ready chime".
+     * Four ticks is a fifth of a second per icon - about a second for a full loadout, which reads as
+     * a deliberate animation at 60 fps without holding up the take.
+     */
+    private static final int APPEAR_STAGGER_TICKS = 4;
+
     private static final List<ResourceLocation> GRANTED = new ArrayList<>();
     private static final Map<ResourceLocation, long[]> COOLDOWNS = new HashMap<>();
     private static final Set<ResourceLocation> READY_LAST_FRAME = new HashSet<>();
+
+    /**
+     * Client ticks still to wait before each newly granted slot lands on the row. An id with no
+     * entry has already landed (or was never animated, because the client already knew about it).
+     *
+     * <p>Counted down rather than compared against a deadline on the server clock: the very first
+     * sync of a session is also the packet that establishes the clock offset, and an animation that
+     * could be skipped - or stuck for ever - by a bad offset is worse than no animation.
+     */
+    private static final Map<ResourceLocation, Integer> APPEAR_IN = new HashMap<>();
+
+    /** The client level tick the countdown above was last advanced on. */
+    private static long lastCountedTick = Long.MIN_VALUE;
 
     private static long serverTimeOffset;
     private static long flashUntil;
@@ -59,39 +81,92 @@ public final class ClientPowers {
 
     /** Full state replacement, sent on join, respawn, dimension change and every mutation. */
     public static void onSync(SyncPowersPayload payload) {
+        stampConnection();
+        List<ResourceLocation> before = List.copyOf(GRANTED);
         GRANTED.clear();
         GRANTED.addAll(payload.granted());
+        // Before the windows are rebuilt: every read below is against the server clock.
+        serverTimeOffset = payload.serverGameTime() - clientGameTime();
+
         COOLDOWNS.clear();
         Map<ResourceLocation, Long> ready = payload.asCooldownMap();
         for (Map.Entry<ResourceLocation, Long> entry : ready.entrySet()) {
             long readyAt = entry.getValue();
             // The server only stores the ready tick, so reconstruct the window from the ability's
             // own cooldown length. That is what makes a sweep survive a relog at the right fill.
-            int length = AbilityRegistry.get(entry.getKey()).map(Ability::cooldownTicks).orElse(0);
+            // A window forced longer than the nominal cooldown by /power cooldown set is honoured
+            // rather than clamped - otherwise the sweep sits pinned at full until it catches up,
+            // which is exactly the shot that command exists for.
+            long length = AbilityRegistry.get(entry.getKey()).map(Ability::cooldownTicks).orElse(0);
+            length = Math.max(length, readyAt - now());
             COOLDOWNS.put(entry.getKey(), new long[] {readyAt - length, readyAt});
         }
-        serverTimeOffset = payload.serverGameTime() - clientGameTime();
+
+        stageNewSlots(before);
+
         READY_LAST_FRAME.clear();
         for (ResourceLocation id : GRANTED) {
-            if (isReady(id)) {
+            if (appeared(id) && isReady(id)) {
                 READY_LAST_FRAME.add(id);
             }
         }
     }
 
+    /**
+     * Queues the "pop in one by one" animation for slots the client did not have a moment ago.
+     *
+     * <p>Slots the client already knew about are left alone: a respawn or a dimension change sends
+     * the same full sync, and re-animating an untouched row mid-take would be a bug, not a beat.
+     */
+    private static void stageNewSlots(List<ResourceLocation> before) {
+        APPEAR_IN.keySet().retainAll(GRANTED);
+        int newcomers = 0;
+        for (ResourceLocation id : GRANTED) {
+            if (before.contains(id) || APPEAR_IN.containsKey(id)) {
+                continue;
+            }
+            APPEAR_IN.put(id, newcomers * APPEAR_STAGGER_TICKS);
+            newcomers++;
+        }
+    }
+
     /** One slot changed: either it just fired, or the server is correcting a wrong prediction. */
     public static void onCooldown(CooldownStartPayload payload) {
-        COOLDOWNS.put(payload.abilityId(), new long[] {payload.startedAt(), payload.readyAt()});
+        stampConnection();
+        ResourceLocation id = payload.abilityId();
+        COOLDOWNS.put(id, new long[] {payload.startedAt(), payload.readyAt()});
         serverTimeOffset = payload.serverGameTime() - clientGameTime();
+
+        if (payload.refused()) {
+            // The press was turned down. Undo the local prediction's flash, shake the slot, and put
+            // the id back in the ready set so the edge detector does not read "it just came back"
+            // and play the ready chime at somebody who was told no.
+            if (id.equals(flashing)) {
+                flashing = null;
+                flashUntil = 0L;
+            }
+            int slot = GRANTED.indexOf(id);
+            if (slot >= 0) {
+                denySlot = slot;
+                denyUntil = now() + DENY_SHAKE_TICKS;
+            }
+            if (isReady(id)) {
+                READY_LAST_FRAME.add(id);
+            } else {
+                READY_LAST_FRAME.remove(id);
+            }
+            return;
+        }
         if (payload.startedAt() == payload.serverGameTime() && payload.readyAt() > payload.serverGameTime()) {
-            flashing = payload.abilityId();
+            flashing = id;
             flashUntil = now() + FLASH_TICKS;
-            READY_LAST_FRAME.remove(payload.abilityId());
+            READY_LAST_FRAME.remove(id);
         }
     }
 
     /** {@code /power hud <mode>} arrived. */
     public static void onHudMode(PowerHudPayload payload) {
+        stampConnection();
         switch (payload.mode()) {
             case PowerHudPayload.MODE_OFF -> hudVisible = false;
             case PowerHudPayload.MODE_ON -> hudVisible = true;
@@ -141,6 +216,14 @@ public final class ClientPowers {
 
     public static List<ResourceLocation> granted() {
         return List.copyOf(GRANTED);
+    }
+
+    /**
+     * True once this slot's pop-in has landed. The HUD keeps the slot's place in the row either
+     * way, so the icons appear one by one without the whole row sliding sideways under them.
+     */
+    public static boolean appeared(ResourceLocation id) {
+        return !APPEAR_IN.containsKey(id);
     }
 
     public static boolean hudVisible() {
@@ -195,13 +278,16 @@ public final class ClientPowers {
     }
 
     /**
-     * Per-frame housekeeping, driven from the HUD layer so it works on both loaders without a
-     * client-tick hook of its own: drops state left over from a previous server, then edge-detects
-     * "this slot just became usable" and plays the ready chime.
+     * Per-tick housekeeping, driven from the loader's client-tick hook: drops state left over from a
+     * previous server, lands the staggered pop-in of freshly granted slots, and edge-detects "this
+     * slot just became usable" so the ready chime plays exactly once per slot.
      *
      * <p>Dropping the state on a new connection matters for more than tidiness - it is what stops
-     * a stale row of icons being drawn, and being clickable, after joining a server that does not
-     * have this feature at all.
+     * a stale row of icons being drawn after joining a server that does not have this feature at
+     * all. The connection is compared against the one the current state was <em>stamped</em> with
+     * when it arrived, not against whatever was current the last time a frame was drawn: a sync
+     * that lands before the first HUD frame of a world is real state, and wiping it would leave the
+     * row blank for the whole session.
      */
     public static void clientTick() {
         Minecraft minecraft = Minecraft.getInstance();
@@ -219,19 +305,50 @@ public final class ClientPowers {
         if (minecraft.player == null) {
             return;
         }
+        // The countdown only moves when the level's own clock does, so the pop-in runs at the same
+        // speed whether this is called from a client-tick hook or from the HUD fallback.
+        long levelTick = clientGameTime();
+        boolean freshTick = levelTick != lastCountedTick;
+        lastCountedTick = levelTick;
+
         for (ResourceLocation id : GRANTED) {
+            Integer appearIn = APPEAR_IN.get(id);
+            if (appearIn != null) {
+                if (appearIn > 0) {
+                    if (freshTick) {
+                        APPEAR_IN.put(id, appearIn - 1);
+                    }
+                    continue;
+                }
+                // This is the icon landing on the row: one chime for it, and it starts life in the
+                // ready set so the cooldown edge detector below does not chime for it a second time.
+                APPEAR_IN.remove(id);
+                playReadyChime(minecraft);
+                if (isReady(id)) {
+                    READY_LAST_FRAME.add(id);
+                } else {
+                    READY_LAST_FRAME.remove(id);
+                }
+                continue;
+            }
             boolean ready = isReady(id);
             if (ready && READY_LAST_FRAME.add(id)) {
-                // creator_powers:ui.ability_ready, with a vanilla stand-in for the (impossible, but
-                // cheap to guard) case of the registry not having flushed yet.
-                SoundEvent chime = PowersFeature.readyChime();
-                minecraft.getSoundManager().play(chime != null
-                        ? SimpleSoundInstance.forUI(chime, 1.0F, 0.6F)
-                        : SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_CHIME.value(), 1.6F, 0.5F));
+                playReadyChime(minecraft);
             } else if (!ready) {
                 READY_LAST_FRAME.remove(id);
             }
         }
+    }
+
+    /**
+     * {@code creator_powers:ui.ability_ready}, with a vanilla stand-in for the (impossible, but
+     * cheap to guard) case of the registry not having flushed yet.
+     */
+    private static void playReadyChime(Minecraft minecraft) {
+        SoundEvent chime = PowersFeature.readyChime();
+        minecraft.getSoundManager().play(chime != null
+                ? SimpleSoundInstance.forUI(chime, 1.0F, 0.6F)
+                : SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_CHIME.value(), 1.6F, 0.5F));
     }
 
     /** Wipes the mirror. Called when the client connects somewhere new. */
@@ -239,11 +356,23 @@ public final class ClientPowers {
         GRANTED.clear();
         COOLDOWNS.clear();
         READY_LAST_FRAME.clear();
+        APPEAR_IN.clear();
+        lastCountedTick = Long.MIN_VALUE;
         serverTimeOffset = 0L;
         flashing = null;
         flashUntil = 0L;
         denySlot = -1;
         denyUntil = 0L;
+    }
+
+    /**
+     * Remembers which connection the state now on hand came from. Called the moment a payload is
+     * applied, so {@link #clientTick()} can tell "this is from the server I am on" from "this is
+     * left over from the last one".
+     */
+    private static void stampConnection() {
+        Minecraft minecraft = Minecraft.getInstance();
+        connection = minecraft == null ? null : minecraft.getConnection();
     }
 
     private static long clientGameTime() {

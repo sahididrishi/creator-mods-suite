@@ -5,6 +5,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeMap;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 
@@ -19,8 +20,17 @@ import java.util.List;
  * attribute.
  *
  * <p>The stage modifiers are <em>permanent</em> ({@code addPermanentModifier}) so they serialise
- * into the player's vanilla attribute NBT and the player never loads at the wrong size for a frame.
+ * into the player's vanilla attribute NBT. That is not cosmetic: vanilla reads the attribute list
+ * <em>before</em> {@code Health} in {@code LivingEntity#readAdditionalSaveData}, so an Apex player
+ * whose +150 % max health did not persist would be clamped from 50 hp to 20 every single relog.
  * The transformation movement lock is <em>transient</em> - it must never survive a crash.
+ *
+ * <p>Permanent modifiers are world state, so there has to be a way back out of them when the
+ * feature is switched off: {@link #stripFrom(AttributeMap)} is that way, and
+ * {@code EvolveAttributeMapMixin} calls it from {@code AttributeMap#load} whenever
+ * {@code config/creatormods.json} says {@code "evolve": false}. Nothing else in the feature runs at
+ * that point - a disabled feature gets no lifecycle calls at all - which is exactly why the hook
+ * has to sit on the vanilla load path rather than in the heartbeat.
  */
 public final class StageModifiers {
 
@@ -106,6 +116,31 @@ public final class StageModifiers {
     public static boolean isMovementLocked(LivingEntity entity) {
         AttributeInstance instance = entity.getAttribute(Attributes.MOVEMENT_SPEED);
         return instance != null && instance.hasModifier(TRANSFORM_LOCK_ID);
+    }
+
+    /**
+     * Removes every modifier this class can write from a raw {@link AttributeMap} - including the
+     * transformation lock - and reports how many were actually there.
+     *
+     * <p>This is the "the human switched the feature off" escape hatch. It only ever touches the
+     * ten fixed {@code creator_evolve:*} ids, so it cannot disturb another mod's modifiers, and it
+     * takes an {@code AttributeMap} rather than a {@link LivingEntity} because the one place it is
+     * safe to run - {@code AttributeMap#load} - has no entity to hand.
+     */
+    public static int stripFrom(AttributeMap map) {
+        int removed = 0;
+        for (Holder<Attribute> attribute : touchedAttributes()) {
+            AttributeInstance instance = map.getInstance(attribute);
+            if (instance == null) {
+                continue;
+            }
+            for (ResourceLocation modifierId : ALL_IDS) {
+                if (instance.removeModifier(modifierId)) {
+                    removed++;
+                }
+            }
+        }
+        return removed;
     }
 
     /** The amount currently written under {@code modifierId}, or 0 when there is no such modifier. */

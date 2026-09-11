@@ -66,6 +66,29 @@ class VaultHudStateTest {
     }
 
     @Test
+    void twoAltarsInRangeDoNotOverwriteEachOther() {
+        // The plan's failure-mode table lists "two altars within 16 blocks" as supported, and a
+        // two-chest set arranges it trivially. With one global slot the two altars' 10-tick
+        // broadcasts overwrote each other and the readout flickered between them.
+        BlockPos near = new BlockPos(0, 64, 0);
+        BlockPos far = new BlockPos(20, 64, 0);
+        VaultHudState.accept(VaultStatusPayload.of(near, AltarState.CHARGING, 30, 1, -1.0F, 0));
+        VaultHudState.accept(VaultStatusPayload.of(far, AltarState.SPENT, 0, 2, -1.0F, 0));
+
+        assertEquals(2, VaultHudState.tracked(), "both altars should be tracked");
+
+        VaultStatusPayload fromNear = VaultHudState.current(new BlockPos(2, 64, 0));
+        assertNotNull(fromNear);
+        assertEquals(near, fromNear.altarPos());
+        assertSame(AltarState.CHARGING, fromNear.state());
+
+        VaultStatusPayload fromFar = VaultHudState.current(new BlockPos(18, 64, 0));
+        assertNotNull(fromFar);
+        assertEquals(far, fromFar.altarPos());
+        assertSame(AltarState.SPENT, fromFar.state());
+    }
+
+    @Test
     void theStaleWindowIsShortEnoughToHideTheHudButLongerThanTheBroadcastPeriod() {
         // The altar broadcasts every STATUS_BROADCAST_INTERVAL ticks; if the stale window were
         // shorter than that the HUD would flicker between every packet.

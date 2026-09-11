@@ -60,10 +60,10 @@ public final class PowerKeys {
 
     /**
      * Drains the click queue of every slot key and fires the matching ability. Called once per
-     * client tick from the loader glue.
+     * client tick from {@code PowersClient#clientTick(boolean)}, which does the HUD mirror's
+     * housekeeping first.
      */
     public static void poll() {
-        ClientPowers.clientTick();
         KeyMapping[] keys = all();
         for (int slot = 0; slot < keys.length; slot++) {
             while (keys[slot].consumeClick()) {

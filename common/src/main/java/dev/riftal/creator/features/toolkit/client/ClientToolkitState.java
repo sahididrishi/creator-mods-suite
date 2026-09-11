@@ -39,7 +39,14 @@ public final class ClientToolkitState {
     private static boolean hideChat;
     private static boolean hideNametags;
 
-    private static Object syncedLevel;
+    /**
+     * Identity of the world we last asked for a sync, so the request happens once per join.
+     *
+     * <p>A cheap token, never the {@code ClientLevel} itself: holding the level object kept the
+     * whole disconnected world - its entity list and chunk cache with it - alive for as long as the
+     * player sat on the title screen between takes.
+     */
+    private static int syncedLevelToken;
 
     // ----- state the HUD asks for ------------------------------------------------------------
 
@@ -117,11 +124,23 @@ public final class ClientToolkitState {
         playersFrozen = payload.players();
     }
 
-    /** S2C {@code hide_state}. Runs on the client thread. */
+    /**
+     * S2C {@code hide_state}. Runs on the client thread.
+     *
+     * <p>{@code options.hideGui} is written only when the hud bit actually <em>changed</em>. The
+     * server always sends the full triple, so an unconditional write meant that
+     * {@code /toolkit hide nametags true}, typed while the director had the HUD off with F1, popped
+     * the entire vanilla HUD back on screen mid-shot. F1 and {@code /toolkit hide hud} stay
+     * independent, which is what the plan asks for.
+     */
     public static void onHideState(HideStatePayload payload) {
+        boolean hudChanged = payload.hud() != hideHud;
         hideHud = payload.hud();
         hideChat = payload.chat();
         hideNametags = payload.nametags();
+        if (!hudChanged) {
+            return;
+        }
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft != null && minecraft.options != null) {
             minecraft.options.hideGui = hideHud;
@@ -131,30 +150,43 @@ public final class ClientToolkitState {
     // ----- join sync -------------------------------------------------------------------------
 
     /**
-     * Asks the server for the current take and freeze state, once per world the client enters.
+     * Asks the server for the current take, freeze and hide state, once per world the client enters.
      *
-     * <p>Called from the HUD layer, which is the only per-frame hook the core library gives a
-     * feature; the level-identity check keeps it to exactly one packet per join.
+     * <p>Called once per client tick from the loader glue. It is a backstop rather than the primary
+     * path: the server pushes all three payloads from its own player-join hook, so a rejoining
+     * client is usually already correct by the time this runs. Keeping it covers a client that
+     * joined a server which had not yet bound the session.
      */
     public static void requestSyncIfNeeded() {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.level == null) {
-            forget(minecraft);
+            if (syncedLevelToken != 0) {
+                forget(minecraft);
+            }
             return;
         }
-        if (minecraft.level == syncedLevel) {
+        int token = System.identityHashCode(minecraft.level);
+        if (token == syncedLevelToken) {
             return;
         }
         // A different world: a timer, a FROZEN tag or a hidden HUD from the last server must not
         // bleed into this one. The server answers the request below with the real state.
         forget(minecraft);
-        syncedLevel = minecraft.level;
+        syncedLevelToken = token;
         try {
             Payloads.sendToServer(RequestSyncPayload.INSTANCE);
         } catch (Throwable t) {
             // Vanilla or toolkit-less server: the HUD simply stays at its defaults.
             LOG.debug("[toolkit] could not request a state sync from this server", t);
         }
+    }
+
+    /**
+     * The client left a world. Called from the loader's disconnect event, so leaving really does
+     * hand the vanilla HUD switch back <em>on the way out</em> rather than on the next join.
+     */
+    public static void onDisconnect() {
+        forget(Minecraft.getInstance());
     }
 
     /**
@@ -195,7 +227,7 @@ public final class ClientToolkitState {
         hideHud = false;
         hideChat = false;
         hideNametags = false;
-        syncedLevel = null;
+        syncedLevelToken = 0;
     }
 
     private ClientToolkitState() {

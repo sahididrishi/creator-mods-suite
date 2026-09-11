@@ -18,8 +18,9 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.AABB;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -43,6 +44,9 @@ public final class VoidRiseEvent implements WorldEvent {
     private static final int PARTICLE_PERIOD = 4;
     private static final double CURTAIN_RADIUS = 24.0D;
     private static final double WARN_DISTANCE = 10.0D;
+
+    /** Horizontal half-width of the box the cull looks in, around each player and the origin. */
+    private static final double CULL_RADIUS = 64.0D;
 
     private double planeY;
     private double startY;
@@ -107,6 +111,11 @@ public final class VoidRiseEvent implements WorldEvent {
         // Nothing to undo - the void never removed a block.
     }
 
+    /**
+     * The void's black, at full strength. The client scales it by how close the camera is to the
+     * plane ({@code ClientEventState#targetStrength}) using {@link #voidY} from the payload, so
+     * starting a rise with the plane 100 blocks down no longer darkens the sky for no reason.
+     */
     @Override
     public SkyTint skyTint() {
         return new SkyTint(0.0F, 0.0F, 0.0F, 0.30F);
@@ -144,32 +153,67 @@ public final class VoidRiseEvent implements WorldEvent {
         }
     }
 
-    /** One pass over the level's entities, every {@link #KILL_PERIOD} ticks, never per tick. */
+    /**
+     * Kills what is under the plane, every {@link #KILL_PERIOD} ticks.
+     *
+     * <p>Bounded to boxes around the people who can see it rather than a full
+     * {@code getAllEntities()} sweep: on a dressed recording world that sweep walks every item
+     * frame, armour stand and farm animal in the level twelve times a minute, and nothing outside
+     * anybody's view needs to die on the exact frame the plane passes it.
+     */
     private void cull(EventContext ctx) {
         ServerLevel level = ctx.level();
-        for (Entity entity : level.getAllEntities()) {
-            if (entity.getY() >= planeY || entity.isRemoved()) {
-                continue;
-            }
-            if (entity instanceof ServerPlayer player) {
-                if (player.isCreative() || player.isSpectator()) {
-                    continue;
+        double floor = level.getMinBuildHeight() - 8.0D;
+        for (AABB box : cullBoxes(ctx, floor)) {
+            for (Entity entity : level.getEntities((Entity) null, box,
+                    entity -> !entity.isRemoved() && entity.getY() < planeY)) {
+                if (entity instanceof ServerPlayer player) {
+                    if (player.isCreative() || player.isSpectator()) {
+                        continue;
+                    }
+                    player.hurt(level.damageSources().genericKill(), Float.MAX_VALUE);
+                } else if (entity instanceof LivingEntity living) {
+                    living.hurt(level.damageSources().genericKill(), Float.MAX_VALUE);
+                } else if (entity instanceof ItemEntity) {
+                    entity.discard();
                 }
-                player.hurt(level.damageSources().genericKill(), Float.MAX_VALUE);
-            } else if (entity instanceof LivingEntity living) {
-                living.hurt(level.damageSources().genericKill(), Float.MAX_VALUE);
-            } else if (entity instanceof ItemEntity) {
-                entity.discard();
             }
         }
     }
 
+    /** One box per player column plus the event's own origin, from the world floor up to the plane. */
+    private List<AABB> cullBoxes(EventContext ctx, double floor) {
+        List<AABB> boxes = new ArrayList<>();
+        for (ServerPlayer player : ctx.players()) {
+            boxes.add(columnBox(player.getX(), player.getZ(), floor));
+        }
+        boxes.add(columnBox(ctx.origin().x, ctx.origin().z, floor));
+        return boxes;
+    }
+
+    private AABB columnBox(double x, double z, double floor) {
+        return new AABB(x - CULL_RADIUS, floor, z - CULL_RADIUS,
+                x + CULL_RADIUS, planeY, z + CULL_RADIUS);
+    }
+
+    /**
+     * The black curtain at the plane.
+     *
+     * <p>Two batched, force-sent packets per player rather than 64 single-point ones: the
+     * non-forced {@code sendParticles} overload only reaches players within 32 blocks of the
+     * particle, and the plane starts at the world floor - so for the whole first half of the shot
+     * the curtain was culled before it left the server. {@code longDistance = true} raises that to
+     * 512 blocks, and one packet carries an arbitrary count.
+     */
     private void curtain(EventContext ctx) {
         ServerLevel level = ctx.level();
         for (ServerPlayer player : ctx.players()) {
-            Vec3 centre = new Vec3(player.getX(), planeY, player.getZ());
-            Fx.particleRing(level, ParticleTypes.SQUID_INK, centre, CURTAIN_RADIUS, 40);
-            Fx.particleRing(level, ParticleTypes.ASH, centre, CURTAIN_RADIUS * 0.6D, 24);
+            level.sendParticles(player, ParticleTypes.SQUID_INK, true,
+                    player.getX(), planeY, player.getZ(), 60,
+                    CURTAIN_RADIUS * 0.6D, 0.5D, CURTAIN_RADIUS * 0.6D, 0.0D);
+            level.sendParticles(player, ParticleTypes.ASH, true,
+                    player.getX(), planeY, player.getZ(), 30,
+                    CURTAIN_RADIUS * 0.35D, 0.4D, CURTAIN_RADIUS * 0.35D, 0.0D);
         }
     }
 

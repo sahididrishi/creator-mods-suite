@@ -7,11 +7,13 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import java.util.EnumSet;
 
 /**
- * Keeps a bound Vault Keeper in its treasure room.
+ * Walks an idle Vault Keeper back to its altar.
  *
- * <p>With no target and more than {@link VaultKeeper#LEASH_RADIUS} blocks between it and its altar
- * the Keeper paths home; past {@link VaultKeeper#TETHER_RADIUS} it is pulled back outright, so a
- * player cannot kite it up the entrance shaft and leave the room empty for the next take.
+ * <p>This is the <em>soft</em> half of the leash only, and it deliberately stands down while the
+ * Keeper has a target so it never fights {@code MeleeAttackGoal} for {@link Goal.Flag#MOVE}. The
+ * hard tether that stops a player kiting the Keeper up the entrance shaft cannot live here for
+ * exactly that reason - a kiting player <em>is</em> the target, so this goal is not running - and
+ * is in {@code VaultKeeper#customServerAiStep()} instead, where it runs every tick regardless.
  */
 public class KeeperGuardAltarGoal extends Goal {
 
@@ -65,12 +67,6 @@ public class KeeperGuardAltarGoal extends Goal {
     public void tick() {
         BlockPos altar = this.keeper.altarPos();
         if (altar == null) {
-            return;
-        }
-        double distanceSqr = distanceSqrToAltar(altar);
-        if (distanceSqr > VaultKeeper.TETHER_RADIUS * VaultKeeper.TETHER_RADIUS) {
-            this.keeper.getNavigation().stop();
-            this.keeper.teleportTo(altar.getX() + 0.5D, altar.getY() + 1.0D, altar.getZ() + 0.5D);
             return;
         }
         if (this.repathCooldown > 0) {
