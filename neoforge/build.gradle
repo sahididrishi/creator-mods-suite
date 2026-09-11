@@ -1,0 +1,58 @@
+plugins {
+    id 'multiloader-loader'
+    id 'net.neoforged.moddev'
+}
+
+// Resolve these outside the neoForge { } closures: inside them `project(...)` resolves to the
+// dependency handler's project() method, not Project#project(String).
+def commonGenerated = project(':common').file('src/generated/resources')
+def commonResources = project(':common').file('src/main/resources')
+def commonAccessTransformer = project(':common').file('src/main/resources/META-INF/accesstransformer.cfg')
+
+neoForge {
+    version = neoforge_version
+    // Automatically enable neoforge AccessTransformers if the file exists
+    if (commonAccessTransformer.exists()) {
+        accessTransformers.from(commonAccessTransformer.absolutePath)
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+    runs {
+        configureEach {
+            systemProperty('neoforge.enabledGameTestNamespaces', mod_id)
+            ideName = "NeoForge ${it.name.capitalize()} (${project.path})" // Unify the run config names with fabric
+        }
+        client {
+            client()
+        }
+        data {
+            data()
+
+            // DataGen can be run by - "./gradlew :neoforge:runData" in Terminal.
+            // Output lands in :common so both loaders pick the generated files up.
+            programArguments.addAll '--mod', project.mod_id, '--all',
+                    '--output', commonGenerated.absolutePath,
+                    '--existing', commonResources.absolutePath
+        }
+        server {
+            server()
+        }
+        // ./gradlew :neoforge:runGameTestServer
+        gameTestServer {
+            type = 'gameTestServer'
+            gameDirectory = project.file('build/run/gameTestServer')
+            systemProperty('neoforge.enabledGameTestNamespaces', mod_id)
+        }
+    }
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+dependencies {
+    implementation "software.bernie.geckolib:geckolib-neoforge-${minecraft_version}:${geckolib_version}"
+}

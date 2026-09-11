@@ -1,0 +1,61 @@
+# --- Gradle ---
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+buildSrc/build/
+buildSrc/.gradle/
+gradle-app.setting
+.gradletasknamecache
+
+# --- Minecraft dev runs ---
+run/
+runs/
+*/run/
+*/runs/
+logs/
+crash-reports/
+saves/
+server.properties
+eula.txt
+usercache.json
+usernamecache.json
+banned-*.json
+ops.json
+whitelist.json
+
+# --- Loom / ModDevGradle / NeoForm caches ---
+.loom-cache/
+*.launch
+neoforge/src/generated/resources/.cache/
+common/src/generated/resources/.cache/
+
+# --- IntelliJ IDEA ---
+.idea/
+!.idea/scopes/
+*.iml
+*.ipr
+*.iws
+out/
+
+# --- Eclipse / VS Code ---
+.classpath
+.project
+.settings/
+bin/
+.metadata/
+.vscode/
+.factorypath
+eclipse/
+
+# --- OS / editor cruft ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+*~
+*.swp
+
+# --- Misc ---
+*.log
+local.properties

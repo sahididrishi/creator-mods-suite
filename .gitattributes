@@ -1,0 +1,20 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.java text eol=lf
+*.gradle text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.properties text eol=lf
+*.patch text eol=lf
+
+*.png binary
+*.gif binary
+*.jar binary
+*.nbt binary
+*.zip binary
+*.lzma binary
+*.exe binary
+*.dll binary
+*.jks binary
+*.ogg binary

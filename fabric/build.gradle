@@ -1,0 +1,91 @@
+plugins {
+    id 'multiloader-loader'
+    id 'fabric-loom'
+}
+
+// Dedicated source set for GameTests so they never ship in the release jar.
+sourceSets {
+    gametest {
+        compileClasspath += sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.runtimeClasspath
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${parchment_minecraft}:${parchment_version}@zip")
+    }
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+
+    modImplementation "software.bernie.geckolib:geckolib-fabric-${minecraft_version}:${geckolib_version}"
+
+    gametestImplementation sourceSets.main.output
+}
+
+loom {
+    def aw = project(':common').file("src/main/resources/${mod_id}.accesswidener")
+    if (aw.exists()) {
+        accessWidenerPath.set(aw)
+    }
+    // Loom >= 1.17 remaps mixin annotations at jar-remap time; no annotation processor and no
+    // refmap is needed. Set `useLegacyMixinAp = true` here (and re-add "refmap" to the mixin
+    // configs) only if you ever need the old behaviour.
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+        "${mod_id}-test" {
+            sourceSet sourceSets.gametest
+        }
+    }
+    runs {
+        client {
+            client()
+            setConfigName('Fabric Client')
+            ideConfigGenerated(true)
+            runDir('runs/client')
+        }
+        server {
+            server()
+            setConfigName('Fabric Server')
+            ideConfigGenerated(true)
+            runDir('runs/server')
+        }
+        // ./gradlew :fabric:runGameTest
+        gameTest {
+            server()
+            setConfigName('Fabric GameTest')
+            ideConfigGenerated(true)
+            source sourceSets.gametest
+            vmArg '-Dfabric-api.gametest'
+            vmArg "-Dfabric-api.gametest.report-file=${project.layout.buildDirectory.get().asFile}/junit.xml"
+            runDir 'build/run/gameTest'
+        }
+    }
+}
+
+// The gametest source set gets common + fabric classes through `gametestImplementation
+// sourceSets.main.output` - do NOT add configurations.commonJava here or the common classes end up
+// compiled twice and duplicated on the runtime classpath.
+tasks.named('processGametestResources', ProcessResources) {
+    var expandProps = [
+            'version'       : version,
+            'mod_id'        : mod_id,
+            'mod_name'      : mod_name,
+            'fabric_loader_version': fabric_loader_version,
+            'minecraft_version'    : minecraft_version
+    ]
+    filesMatching('fabric.mod.json') {
+        expand expandProps
+    }
+    inputs.properties(expandProps)
+}
+
+// Keep the gametest source set compiling as part of `./gradlew build` (the run itself is not wired
+// into `check` - it boots a dedicated server and takes ~1 minute; run it explicitly instead).
+tasks.named('check') {
+    dependsOn tasks.named('compileGametestJava')
+}
