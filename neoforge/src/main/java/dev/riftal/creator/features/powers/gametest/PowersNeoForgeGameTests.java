@@ -10,7 +10,7 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
  * {@link GameTestHolder}; {@code creator_powers} is already listed in
  * {@code neoforge.enabledGameTestNamespaces}.
  *
- * <p>{@link PrefixGameTestTemplate}(false) keeps the template id at {@code creator_mpty}
+ * <p>{@link PrefixGameTestTemplate}(false) keeps the template id at {@code creator_powers:empty}
  * instead of {@code creator_powers:Powersneoforgegametests.empty}.
  */
 @GameTestHolder("creator_powers")

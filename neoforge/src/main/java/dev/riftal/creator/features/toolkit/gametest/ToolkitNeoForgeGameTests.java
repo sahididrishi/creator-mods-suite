@@ -10,7 +10,7 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
  * {@link GameTestHolder}; {@code creator_toolkit} is already listed in
  * {@code neoforge.enabledGameTestNamespaces}.
  *
- * <p>{@link PrefixGameTestTemplate}(false) keeps the template id at {@code creator_mpty}
+ * <p>{@link PrefixGameTestTemplate}(false) keeps the template id at {@code creator_toolkit:empty}
  * instead of {@code creator_toolkit:Toolkitneoforgegametests.empty}.
  */
 @GameTestHolder("creator_toolkit")
