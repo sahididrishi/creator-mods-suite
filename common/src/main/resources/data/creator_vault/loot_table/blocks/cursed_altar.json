@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:block",
+  "random_sequence": "creator_vault:blocks/cursed_altar",
+  "pools": [
+    {
+      "rolls": 1.0,
+      "bonus_rolls": 0.0,
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ],
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "creator_vault:cursed_altar"
+        }
+      ]
+    }
+  ]
+}

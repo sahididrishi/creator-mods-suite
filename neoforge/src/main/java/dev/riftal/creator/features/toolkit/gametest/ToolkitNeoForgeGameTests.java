@@ -21,4 +21,34 @@ public class ToolkitNeoForgeGameTests {
     public void featureIsEnabled(GameTestHelper helper) {
         ToolkitGameTests.featureIsEnabled(helper);
     }
+
+    @GameTest(template = "empty")
+    public void waveRingSpawnsExactCount(GameTestHelper helper) {
+        ToolkitGameTests.waveRingSpawnsExactCount(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 160)
+    public void freezeMobsStopsMovement(GameTestHelper helper) {
+        ToolkitGameTests.freezeMobsStopsMovement(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 80)
+    public void arenaResetRestoresBlocksAndEntities(GameTestHelper helper) {
+        ToolkitGameTests.arenaResetRestoresBlocksAndEntities(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void arenaSaveRejectsOversizeVolumes(GameTestHelper helper) {
+        ToolkitGameTests.arenaSaveRejectsOversizeVolumes(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void takeRecordsMarks(GameTestHelper helper) {
+        ToolkitGameTests.takeRecordsMarks(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void cameraBookmarksRoundTripThroughSavedState(GameTestHelper helper) {
+        ToolkitGameTests.cameraBookmarksRoundTripThroughSavedState(helper);
+    }
 }

@@ -1,0 +1,9 @@
+accessWidener	v2	named
+
+# Creator Mods Suite - shared access widener (Fabric).
+# Keep this file in sync with common/src/main/resources/META-INF/accesstransformer.cfg (NeoForge).
+# Owned by the core agent only. Features must request additions, not edit this file.
+
+# BlockEntityType$BlockEntitySupplier is package-private in vanilla 1.21.1
+# (BlockEntityType.java:316), so BlockEntityType.Builder.of(...) cannot be called from mod code.
+accessible	class	net/minecraft/world/level/block/entity/BlockEntityType$BlockEntitySupplier

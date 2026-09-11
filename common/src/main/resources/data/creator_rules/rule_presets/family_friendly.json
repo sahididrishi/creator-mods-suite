@@ -1,0 +1,8 @@
+{
+  "rules": [
+    "crafts_x10",
+    "giant_mobs",
+    "item_roulette"
+  ],
+  "replace": true
+}

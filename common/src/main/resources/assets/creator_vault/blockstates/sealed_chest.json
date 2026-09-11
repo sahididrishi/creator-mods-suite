@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "creator_vault:block/sealed_chest"
+    },
+    "facing=east": {
+      "model": "creator_vault:block/sealed_chest",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "creator_vault:block/sealed_chest",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "creator_vault:block/sealed_chest",
+      "y": 270
+    }
+  }
+}

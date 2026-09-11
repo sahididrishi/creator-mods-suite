@@ -1,0 +1,117 @@
+{
+  "format_version": "1.12.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.ashen_colossus",
+        "texture_width": 128,
+        "texture_height": 128,
+        "visible_bounds_width": 6,
+        "visible_bounds_height": 6,
+        "visible_bounds_offset": [0, 2.5, 0]
+      },
+      "bones": [
+        {
+          "name": "root",
+          "pivot": [0, 0, 0]
+        },
+        {
+          "name": "leg_right",
+          "parent": "root",
+          "pivot": [-6, 32, 0],
+          "cubes": [
+            {
+              "origin": [-10, 0, -4],
+              "size": [8, 32, 8],
+              "uv": [0, 88]
+            }
+          ]
+        },
+        {
+          "name": "leg_left",
+          "parent": "root",
+          "pivot": [6, 32, 0],
+          "cubes": [
+            {
+              "origin": [2, 0, -4],
+              "size": [8, 32, 8],
+              "uv": [32, 88]
+            }
+          ]
+        },
+        {
+          "name": "body",
+          "parent": "root",
+          "pivot": [0, 32, 0],
+          "cubes": [
+            {
+              "origin": [-12, 32, -7],
+              "size": [24, 32, 14],
+              "uv": [0, 0]
+            }
+          ]
+        },
+        {
+          "name": "head",
+          "parent": "body",
+          "pivot": [0, 64, 0],
+          "cubes": [
+            {
+              "origin": [-7, 64, -7],
+              "size": [14, 14, 14],
+              "uv": [0, 46]
+            }
+          ]
+        },
+        {
+          "name": "arm_right",
+          "parent": "body",
+          "pivot": [-13, 60, 0],
+          "cubes": [
+            {
+              "origin": [-21, 32, -4],
+              "size": [8, 28, 8],
+              "uv": [56, 46]
+            }
+          ]
+        },
+        {
+          "name": "hand_right",
+          "parent": "arm_right",
+          "pivot": [-17, 32, 0],
+          "cubes": [
+            {
+              "origin": [-22, 22, -5],
+              "size": [10, 10, 10],
+              "uv": [64, 108]
+            }
+          ]
+        },
+        {
+          "name": "arm_left",
+          "parent": "body",
+          "pivot": [13, 60, 0],
+          "cubes": [
+            {
+              "origin": [13, 32, -4],
+              "size": [8, 28, 8],
+              "uv": [76, 0]
+            }
+          ]
+        },
+        {
+          "name": "hand_left",
+          "parent": "arm_left",
+          "pivot": [17, 32, 0],
+          "cubes": [
+            {
+              "origin": [12, 22, -5],
+              "size": [10, 10, 10],
+              "uv": [64, 88]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

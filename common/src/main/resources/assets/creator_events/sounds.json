@@ -1,0 +1,26 @@
+{
+  "bloodmoon.drone": {
+    "subtitle": "subtitles.creator_events.bloodmoon.drone",
+    "sounds": [ "creator_events:bloodmoon/drone" ]
+  },
+  "meteor.whistle": {
+    "subtitle": "subtitles.creator_events.meteor.whistle",
+    "sounds": [ "creator_events:meteor/whistle" ]
+  },
+  "meteor.impact": {
+    "subtitle": "subtitles.creator_events.meteor.impact",
+    "sounds": [ "creator_events:meteor/impact" ]
+  },
+  "siege.horn": {
+    "subtitle": "subtitles.creator_events.siege.horn",
+    "sounds": [ "creator_events:siege/horn" ]
+  },
+  "lucky.pop": {
+    "subtitle": "subtitles.creator_events.lucky.pop",
+    "sounds": [ "creator_events:lucky/pop" ]
+  },
+  "void.hum": {
+    "subtitle": "subtitles.creator_events.void.hum",
+    "sounds": [ "creator_events:void/hum" ]
+  }
+}

@@ -21,4 +21,39 @@ public class EventsNeoForgeGameTests {
     public void featureIsEnabled(GameTestHelper helper) {
         EventsGameTests.featureIsEnabled(helper);
     }
+
+    @GameTest(template = "empty")
+    public void allFiveEventsAreRegistered(GameTestHelper helper) {
+        EventsGameTests.allFiveEventsAreRegistered(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void bloodMoonRaisesAndRestoresSpawnCap(GameTestHelper helper) {
+        EventsGameTests.bloodMoonRaisesAndRestoresSpawnCap(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void startingAnEventReplacesTheActiveOne(GameTestHelper helper) {
+        EventsGameTests.startingAnEventReplacesTheActiveOne(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void timerRetimesThePhaseAndSkipEndsTheEvent(GameTestHelper helper) {
+        EventsGameTests.timerRetimesThePhaseAndSkipEndsTheEvent(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void meteorSkipsFromCountdownToFlight(GameTestHelper helper) {
+        EventsGameTests.meteorSkipsFromCountdownToFlight(helper);
+    }
+
+    @GameTest(template = "empty")
+    public void luckyEntityOutcomeSpawnsItsMob(GameTestHelper helper) {
+        EventsGameTests.luckyEntityOutcomeSpawnsItsMob(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public void voidPlaneClampsAndHandsOverToHold(GameTestHelper helper) {
+        EventsGameTests.voidPlaneClampsAndHandsOverToHold(helper);
+    }
 }

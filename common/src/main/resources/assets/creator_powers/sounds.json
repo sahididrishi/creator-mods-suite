@@ -1,0 +1,6 @@
+{
+  "ui.ability_ready": {
+    "subtitle": "subtitles.creator_powers.ui.ability_ready",
+    "sounds": [ "creator_powers:ui/ability_ready" ]
+  }
+}

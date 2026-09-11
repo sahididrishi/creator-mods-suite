@@ -1,4 +1,57 @@
 {
   "feature.creator_vault.name": "Cursed Vault",
-  "feature.creator_vault.description": "A generated structure with a keyed altar, a keeper fight and a sealed reward chest."
+  "feature.creator_vault.description": "A generated structure with a keyed altar, a keeper fight and a sealed reward chest.",
+
+  "itemGroup.creator_vault": "Cursed Vault",
+
+  "block.creator_vault.cursed_altar": "Cursed Altar",
+  "block.creator_vault.cursed_altar.state.sealed": "The altar is dormant. It wants a key.",
+  "block.creator_vault.cursed_altar.state.charging": "The crystal is rising...",
+  "block.creator_vault.cursed_altar.state.active": "The Keeper walks. Kill it.",
+  "block.creator_vault.cursed_altar.state.spent": "The altar is spent.",
+  "block.creator_vault.sealed_chest": "Sealed Chest",
+  "block.creator_vault.sealed_chest.locked": "Chained shut. The Keeper holds it.",
+
+  "item.creator_vault.vault_key": "Vault Key",
+  "item.creator_vault.vault_key.tooltip": "Fits a Cursed Altar",
+  "item.creator_vault.cursed_altar": "Cursed Altar",
+  "item.creator_vault.sealed_chest": "Sealed Chest",
+  "item.creator_vault.vault_keeper_spawn_egg": "Vault Keeper Spawn Egg",
+
+  "entity.creator_vault.vault_keeper": "Vault Keeper",
+
+  "subtitles.creator_vault.altar.activate": "Cursed Altar wakes",
+  "subtitles.creator_vault.altar.unseal": "Cursed Altar dims",
+  "subtitles.creator_vault.altar.reset": "Cursed Altar re-arms",
+  "subtitles.creator_vault.chest.unseal": "Sealed Chest cracks open",
+  "subtitles.creator_vault.keeper.summon": "Vault Keeper erupts",
+  "subtitles.creator_vault.keeper.idle": "Vault Keeper groans",
+  "subtitles.creator_vault.keeper.hurt": "Vault Keeper hurts",
+  "subtitles.creator_vault.keeper.death": "Vault Keeper dies",
+
+  "hud.creator_vault.altar": "Cursed Altar: %s",
+  "hud.creator_vault.state.sealed": "SEALED",
+  "hud.creator_vault.state.charging": "CHARGING",
+  "hud.creator_vault.state.active": "KEEPER ACTIVE",
+  "hud.creator_vault.state.spent": "SPENT",
+  "hud.creator_vault.charging": "Summoning in %s",
+  "hud.creator_vault.keeper": "Keeper %s%%",
+  "hud.creator_vault.chests": "%s sealed chest(s) - keys used %s",
+
+  "commands.creator_vault.player_only": "That has to be run by a player.",
+  "commands.creator_vault.key": "Gave %s Vault Key(s)",
+  "commands.creator_vault.no_altar": "No Cursed Altar within %s blocks",
+  "commands.creator_vault.reset": "Reset altar at %s %s %s (%s chest(s) re-sealed, keeper removed)",
+  "commands.creator_vault.unseal": "Unsealed %s chest(s)",
+  "commands.creator_vault.spawn_failed": "Could not spawn a Vault Keeper here",
+  "commands.creator_vault.spawned_bound": "Spawned Vault Keeper (bound to altar at %s %s %s)",
+  "commands.creator_vault.spawned_unbound": "Spawned Vault Keeper (unbound - no altar within range)",
+  "commands.creator_vault.tp": "Teleported to creator_vault:cursed_vault at %s %s %s",
+  "commands.creator_vault.no_vault": "No Cursed Vault found within %s blocks",
+  "commands.creator_vault.status.header": "Cursed Altar at %s %s %s",
+  "commands.creator_vault.status.state": "  state %s, charge %s/%s",
+  "commands.creator_vault.status.keeper": "  keeper: %s",
+  "commands.creator_vault.status.keeper_alive": "alive",
+  "commands.creator_vault.status.keeper_gone": "gone (%s ticks until the chests open)",
+  "commands.creator_vault.status.chests": "  %s sealed chest(s) wired, %s key(s) used by you"
 }

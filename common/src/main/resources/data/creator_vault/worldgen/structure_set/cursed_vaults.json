@@ -1,0 +1,15 @@
+{
+  "structures": [
+    {
+      "structure": "creator_vault:cursed_vault",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spread_type": "linear",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1830767658
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "evolve.roar_small": {
+    "subtitle": "subtitles.creator_evolve.evolve.roar_small",
+    "sounds": [ "creator_evolve:evolve/roar_small" ]
+  },
+  "evolve.roar_apex": {
+    "subtitle": "subtitles.creator_evolve.evolve.roar_apex",
+    "sounds": [ "creator_evolve:evolve/roar_apex" ]
+  },
+  "evolve.complete": {
+    "subtitle": "subtitles.creator_evolve.evolve.complete",
+    "sounds": [ "creator_evolve:evolve/complete" ]
+  }
+}

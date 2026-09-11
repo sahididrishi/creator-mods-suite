@@ -3,8 +3,8 @@
   "minVersion": "0.8",
   "package": "dev.riftal.creator.features.events.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
-  "client": [],
+  "mixins": ["EventsSpawnStateMixin"],
+  "client": ["EventsClientLevelMixin"],
   "server": [],
   "injectors": {
     "defaultRequire": 1

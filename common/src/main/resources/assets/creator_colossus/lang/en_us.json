@@ -1,4 +1,40 @@
 {
   "feature.creator_colossus.name": "Ashen Colossus",
-  "feature.creator_colossus.description": "A three-phase GeckoLib boss with a boss bar, minion waves, an arena ring and a loot table."
+  "feature.creator_colossus.description": "A three-phase GeckoLib boss with a boss bar, minion waves, an arena ring and a loot table.",
+
+  "entity.creator_colossus.ashen_colossus": "Ashen Colossus",
+  "entity.creator_colossus.ashen_minion": "Ashen Minion",
+  "entity.creator_colossus.ash_bomb": "Ash Bomb",
+
+  "item.creator_colossus.ashen_colossus_spawn_egg": "Ashen Colossus Spawn Egg",
+  "item.creator_colossus.ashen_minion_spawn_egg": "Ashen Minion Spawn Egg",
+
+  "itemGroup.creator_colossus": "Ashen Colossus",
+
+  "commands.creator_colossus.spawn": "Spawned Ashen Colossus at %s %s %s (arena: %s, r=%s)",
+  "commands.creator_colossus.spawn_failed": "Could not create the Ashen Colossus in this level",
+  "commands.creator_colossus.phase": "Phase -> %s (HP %s%%)",
+  "commands.creator_colossus.hp": "HP -> %s%% (phase %s)",
+  "commands.creator_colossus.stagger": "Staggered",
+  "commands.creator_colossus.kill": "Killing Ashen Colossus",
+  "commands.creator_colossus.none": "No Ashen Colossus within %s blocks",
+  "commands.creator_colossus.arena.set": "Arena '%s' set: centre %s %s %s, radius %s",
+  "commands.creator_colossus.arena.rebound": "Re-bound %s live boss(es) to the new ring",
+  "commands.creator_colossus.arena.cleared": "Cleared %s arena(s)",
+  "commands.creator_colossus.arena.unknown": "No arena called '%s'",
+  "commands.creator_colossus.status.health": "Ashen Colossus  HP %s/%s (%s%%)  phase %s",
+  "commands.creator_colossus.status.attack": "attack %s  cooldowns slam %s / lava %s / summon %s / combo %s",
+  "commands.creator_colossus.status.arena": "arena '%s' r=%s  ring %s  minions %s/%s",
+
+  "hud.creator_colossus.ring": "Ring %s",
+  "hud.creator_colossus.ring_warning": "GET BACK INSIDE THE RING",
+
+  "subtitles.creator_colossus.colossus.roar": "Ashen Colossus roars",
+  "subtitles.creator_colossus.colossus.swing": "Ashen Colossus swings",
+  "subtitles.creator_colossus.colossus.slam": "Ashen Colossus slams the ground",
+  "subtitles.creator_colossus.colossus.step": "Ashen Colossus stomps",
+  "subtitles.creator_colossus.colossus.hurt": "Ashen Colossus cracks",
+  "subtitles.creator_colossus.colossus.death": "Ashen Colossus collapses",
+  "subtitles.creator_colossus.minion.hurt": "Ashen Minion crumbles",
+  "subtitles.creator_colossus.minion.death": "Ashen Minion falls apart"
 }

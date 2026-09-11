@@ -1,0 +1,34 @@
+{
+  "colossus.roar": {
+    "subtitle": "subtitles.creator_colossus.colossus.roar",
+    "sounds": [ "creator_colossus:colossus/roar" ]
+  },
+  "colossus.swing": {
+    "subtitle": "subtitles.creator_colossus.colossus.swing",
+    "sounds": [ "creator_colossus:colossus/swing" ]
+  },
+  "colossus.slam": {
+    "subtitle": "subtitles.creator_colossus.colossus.slam",
+    "sounds": [ "creator_colossus:colossus/slam" ]
+  },
+  "colossus.step": {
+    "subtitle": "subtitles.creator_colossus.colossus.step",
+    "sounds": [ "creator_colossus:colossus/step" ]
+  },
+  "colossus.hurt": {
+    "subtitle": "subtitles.creator_colossus.colossus.hurt",
+    "sounds": [ "creator_colossus:colossus/hurt" ]
+  },
+  "colossus.death": {
+    "subtitle": "subtitles.creator_colossus.colossus.death",
+    "sounds": [ "creator_colossus:colossus/death" ]
+  },
+  "minion.hurt": {
+    "subtitle": "subtitles.creator_colossus.minion.hurt",
+    "sounds": [ "creator_colossus:minion/hurt" ]
+  },
+  "minion.death": {
+    "subtitle": "subtitles.creator_colossus.minion.death",
+    "sounds": [ "creator_colossus:minion/death" ]
+  }
+}

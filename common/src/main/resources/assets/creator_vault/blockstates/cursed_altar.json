@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "state=sealed": {
+      "model": "creator_vault:block/cursed_altar_sealed"
+    },
+    "state=charging": {
+      "model": "creator_vault:block/cursed_altar_charging"
+    },
+    "state=active": {
+      "model": "creator_vault:block/cursed_altar_active"
+    },
+    "state=spent": {
+      "model": "creator_vault:block/cursed_altar_spent"
+    }
+  }
+}

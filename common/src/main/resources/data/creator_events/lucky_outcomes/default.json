@@ -1,0 +1,52 @@
+{
+  "_comment": "Lucky-rain drop table. weight = relative pick weight; luck = how much player luck favours it (unused at MVP, player luck is fixed at 0). Unknown types are skipped with a warning.",
+  "outcomes": [
+    {
+      "type": "items",
+      "weight": 10,
+      "luck": 1,
+      "loot_table": "minecraft:chests/simple_dungeon",
+      "rolls": 3
+    },
+    {
+      "type": "entity",
+      "weight": 6,
+      "luck": -1,
+      "id": "minecraft:creeper",
+      "count": 1
+    },
+    {
+      "type": "explosion",
+      "weight": 4,
+      "luck": -2,
+      "radius": 3.0,
+      "fire": false
+    },
+    {
+      "type": "command",
+      "weight": 8,
+      "run": "summon minecraft:pig ~ ~ ~ {Saddle:1b}"
+    },
+    {
+      "type": "entity",
+      "weight": 5,
+      "luck": 2,
+      "id": "minecraft:allay",
+      "count": 2
+    },
+    {
+      "type": "items",
+      "weight": 6,
+      "luck": 2,
+      "loot_table": "creator_events:meteor",
+      "rolls": 1
+    },
+    {
+      "type": "effect",
+      "weight": 5,
+      "effect": "minecraft:levitation",
+      "duration": 100,
+      "radius": 6.0
+    }
+  ]
+}

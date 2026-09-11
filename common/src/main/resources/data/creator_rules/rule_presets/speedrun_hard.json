@@ -1,0 +1,8 @@
+{
+  "rules": [
+    "one_heart",
+    "no_stop_moving",
+    "gravity_x3"
+  ],
+  "replace": true
+}

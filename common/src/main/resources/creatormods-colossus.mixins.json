@@ -4,7 +4,9 @@
   "package": "dev.riftal.creator.features.colossus.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
-  "client": [],
+  "client": [
+    "ColossusCameraMixin"
+  ],
   "server": [],
   "injectors": {
     "defaultRequire": 1

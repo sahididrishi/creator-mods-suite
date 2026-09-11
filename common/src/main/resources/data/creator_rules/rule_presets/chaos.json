@@ -1,0 +1,11 @@
+{
+  "rules": [
+    "random_drops",
+    "crafts_x10",
+    "blocks_explode",
+    "giant_mobs",
+    "gravity_x3",
+    "item_roulette"
+  ],
+  "replace": true
+}

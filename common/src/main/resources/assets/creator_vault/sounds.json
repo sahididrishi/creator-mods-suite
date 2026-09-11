@@ -1,0 +1,50 @@
+{
+  "altar.activate": {
+    "subtitle": "subtitles.creator_vault.altar.activate",
+    "sounds": [
+      "creator_vault:altar/activate"
+    ]
+  },
+  "altar.unseal": {
+    "subtitle": "subtitles.creator_vault.altar.unseal",
+    "sounds": [
+      "creator_vault:altar/unseal"
+    ]
+  },
+  "altar.reset": {
+    "subtitle": "subtitles.creator_vault.altar.reset",
+    "sounds": [
+      "creator_vault:altar/reset"
+    ]
+  },
+  "chest.unseal": {
+    "subtitle": "subtitles.creator_vault.chest.unseal",
+    "sounds": [
+      "creator_vault:chest/unseal"
+    ]
+  },
+  "keeper.summon": {
+    "subtitle": "subtitles.creator_vault.keeper.summon",
+    "sounds": [
+      "creator_vault:keeper/summon"
+    ]
+  },
+  "keeper.idle": {
+    "subtitle": "subtitles.creator_vault.keeper.idle",
+    "sounds": [
+      "creator_vault:keeper/idle"
+    ]
+  },
+  "keeper.hurt": {
+    "subtitle": "subtitles.creator_vault.keeper.hurt",
+    "sounds": [
+      "creator_vault:keeper/hurt"
+    ]
+  },
+  "keeper.death": {
+    "subtitle": "subtitles.creator_vault.keeper.death",
+    "sounds": [
+      "creator_vault:keeper/death"
+    ]
+  }
+}

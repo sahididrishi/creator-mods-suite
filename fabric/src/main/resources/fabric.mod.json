@@ -13,6 +13,7 @@
     },
     "license": "${license}",
     "icon": "${mod_id}.png",
+    "accessWidener": "${mod_id}.accesswidener",
     "environment": "*",
     "entrypoints": {
         "main": [

@@ -1,11 +1,46 @@
 package dev.riftal.creator.features.powers;
 
+import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.core.Feature;
+import dev.riftal.creator.core.command.CommandHelper;
+import dev.riftal.creator.core.net.Payloads;
+import dev.riftal.creator.core.registry.Registrar;
+import dev.riftal.creator.core.registry.RegistryEntry;
+import dev.riftal.creator.features.powers.ability.AbilityRegistry;
+import dev.riftal.creator.features.powers.client.ClientPowers;
+import dev.riftal.creator.features.powers.client.PowersClient;
+import dev.riftal.creator.features.powers.command.PowerCommand;
+import dev.riftal.creator.features.powers.effect.ActiveEffects;
+import dev.riftal.creator.features.powers.net.CooldownStartPayload;
+import dev.riftal.creator.features.powers.net.PowerHudPayload;
+import dev.riftal.creator.features.powers.net.SyncPowersPayload;
+import dev.riftal.creator.features.powers.net.UseAbilityPayload;
+import dev.riftal.creator.features.powers.server.PowerManager;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.world.damagesource.DamageSource;
+
+import static dev.riftal.creator.Constants.LOG;
 
 /**
  * Power Kit - see {@code plans/03-power-kit.md}.
  *
- * <p>Player abilities on keybinds with cooldowns, a cooldown HUD row and server-validated activation.
+ * <p>Six keybind abilities (dash, fire burst, ground pound, ender pull, shield dome, mob freeze)
+ * with server-authoritative cooldowns and a cooldown row on the HUD.
+ *
+ * <p>Shape of the feature:
+ * <ul>
+ *   <li>{@code ability/} - the six abilities and their ordered registry. Server side, pure vanilla.</li>
+ *   <li>{@code data/} - the persisted per-player loadout and the pure cooldown arithmetic.</li>
+ *   <li>{@code effect/} - transient server state: domes, frozen mobs, dash i-frames, pounds.</li>
+ *   <li>{@code net/} - one C2S use packet and three S2C mirrors of the state the HUD needs.</li>
+ *   <li>{@code server/} - {@code PowerManager}, the one place that decides whether an ability fires.</li>
+ *   <li>{@code command/} - the {@code /power} tree.</li>
+ *   <li>{@code client/} - key mappings, the client mirror and the HUD layer. Client only.</li>
+ *   <li>{@code mixin/} - one injection into {@code LivingEntity#hurt} for the dome and dash i-frames.</li>
+ * </ul>
  *
  * <p>This feature owns, and nothing else:
  * <ul>
@@ -26,6 +61,56 @@ public final class PowersFeature implements Feature {
     /** Resource namespace owned by this feature. */
     public static final String NAMESPACE = "creator_powers";
 
+    /** Attachment path for the per-player loadout: {@code creator_powers:powers}. */
+    public static final String ATTACHMENT_PATH = "powers";
+
+    /**
+     * Sound event path of the HUD "this slot is ready again" chime, registered as
+     * {@code creator_powers:ui.ability_ready} and defined in {@code assets/creator_powers/sounds.json}.
+     */
+    public static final String READY_SOUND_PATH = "ui.ability_ready";
+
+    private static RegistryEntry<SoundEvent> readyChime;
+
+    /** Static twin of {@link Feature#rl(String)}, for the many static helpers in this feature. */
+    public static ResourceLocation res(String path) {
+        return ResourceLocation.fromNamespaceAndPath(NAMESPACE, path);
+    }
+
+    /** Full texture path for a GUI sprite: {@code creator_powers:textures/gui/<path>.png}. */
+    public static ResourceLocation guiTexture(String path) {
+        return res("textures/gui/" + path + ".png");
+    }
+
+    /**
+     * The registered ready chime, or {@code null} before the registry flush (and on a server that
+     * never got one). The client falls back to a vanilla sound rather than crashing.
+     */
+    public static SoundEvent readyChime() {
+        return readyChime != null && readyChime.isBound() ? readyChime.get() : null;
+    }
+
+    /** Owner tag for every scheduled task this feature queues, so it can cancel exactly its own. */
+    public static ResourceLocation taskTag() {
+        return res("abilities");
+    }
+
+    /** True when the feature is switched on in {@code config/creatormods.json}. */
+    public static boolean enabled() {
+        return CreatorMods.isEnabled(ID);
+    }
+
+    /**
+     * Damage gate for {@code PowersLivingEntityMixin}: true when a Shield Dome or a dash i-frame
+     * window should swallow this hit. Lives here so the mixin stays a three-line delegation.
+     */
+    public static boolean shouldCancelDamage(ServerPlayer player, DamageSource source) {
+        if (!enabled()) {
+            return false;
+        }
+        return ActiveEffects.shouldCancelDamage(player, source, player.level().getGameTime());
+    }
+
     @Override
     public String id() {
         return ID;
@@ -33,21 +118,53 @@ public final class PowersFeature implements Feature {
 
     @Override
     public void registerContent() {
-        // TODO(powers): declare Registrars, PlayerData attachments, Payloads and command trees here.
+        AbilityRegistry.bootstrap();
+        PowerManager.registerData();
+
+        // The one registry entry this feature owns: the HUD chime that fires when a slot refills.
+        // Declared on both sides - the client plays it, and a dedicated server still has to know the
+        // id exists so the sound is not "unregistered" in a resource-pack check.
+        Registrar<SoundEvent> sounds = registrar(Registries.SOUND_EVENT);
+        readyChime = sounds.register(READY_SOUND_PATH,
+                () -> SoundEvent.createVariableRangeEvent(res(READY_SOUND_PATH)));
+
+        // C2S: the keybind. Never trusted - PowerManager re-checks grant, cooldown and canUse.
+        Payloads.registerC2S(UseAbilityPayload.TYPE, UseAbilityPayload.CODEC, (payload, sender) -> {
+            if (!enabled()) {
+                return;
+            }
+            PowerManager.handleUse(sender, payload.abilityId());
+        });
+
+        // S2C. Registered on BOTH sides, not just in initClient(): a dedicated server has to know
+        // the payload types to be allowed to send them, and the handler bodies below only ever
+        // execute on a client, so the client-only classes they name are never loaded on a server.
+        Payloads.registerS2C(SyncPowersPayload.TYPE, SyncPowersPayload.CODEC,
+                payload -> ClientPowers.onSync(payload));
+        Payloads.registerS2C(CooldownStartPayload.TYPE, CooldownStartPayload.CODEC,
+                payload -> ClientPowers.onCooldown(payload));
+        Payloads.registerS2C(PowerHudPayload.TYPE, PowerHudPayload.CODEC,
+                payload -> ClientPowers.onHudMode(payload));
+
+        PowerCommand.register();
+
+        // The command registrar is replayed every time the server builds its dispatcher - start-up
+        // and every /reload - which is the one loader-neutral "a server is live now" hook core
+        // exposes. Use it to (re)arm the per-tick driver; startTicking() cancels the previous one,
+        // so a reload never doubles it up.
+        CommandHelper.register(dispatcher -> PowerManager.startTicking());
+
+        LOG.info("[powers] {} abilities declared", AbilityRegistry.size());
     }
 
     @Override
     public void initCommon() {
-        // TODO(powers): loader-agnostic wiring that runs on both sides.
+        // Nothing extra: everything this feature needs is declared in registerContent(), and the
+        // per-tick driver is armed when a server actually starts.
     }
 
     @Override
     public void initClient() {
-        // TODO(powers): HUD layers, entity renderers, key mappings. Client only.
-    }
-
-    @Override
-    public void initServer() {
-        // TODO(powers): dedicated-server-only wiring, if any.
+        PowersClient.init(rl("cooldown_row"));
     }
 }

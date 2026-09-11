@@ -3,8 +3,8 @@
   "minVersion": "0.8",
   "package": "dev.riftal.creator.features.evolve.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
-  "client": [],
+  "mixins": ["EvolveLivingEntityMixin", "EvolvePlayerMixin"],
+  "client": ["EvolvePlayerRendererMixin"],
   "server": [],
   "injectors": {
     "defaultRequire": 1

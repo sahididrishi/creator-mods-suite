@@ -1,4 +1,68 @@
 {
   "feature.creator_toolkit.name": "Director's Toolkit",
-  "feature.creator_toolkit.description": "Recording controls: take timer, freeze, wave spawning, arena snapshot and restore, camera paths, HUD overlay."
+  "feature.creator_toolkit.description": "Recording controls: take timer, freeze, wave spawning, arena snapshot and restore, camera paths, HUD overlay.",
+
+  "hud.creator_toolkit.recording": "REC",
+  "hud.creator_toolkit.idle": "---",
+  "hud.creator_toolkit.take": "TAKE %s  %s",
+  "hud.creator_toolkit.mark": "MARK %s",
+  "hud.creator_toolkit.marks": "%s marks",
+  "hud.creator_toolkit.frozen.mobs": "FROZEN mobs",
+  "hud.creator_toolkit.frozen.players": "FROZEN players",
+  "hud.creator_toolkit.frozen.both": "FROZEN mobs+players",
+
+  "commands.creator_toolkit.on": "ON",
+  "commands.creator_toolkit.off": "OFF",
+  "commands.creator_toolkit.player_only": "That part of the toolkit has to be run by a player.",
+
+  "commands.creator_toolkit.take.started": "Take %s started",
+  "commands.creator_toolkit.take.stopped": "Take %s stopped at %s (%s marks) -> %s",
+  "commands.creator_toolkit.take.mark": "Mark %s @ %s",
+  "commands.creator_toolkit.take.status.running": "Take %s running %s, %s mark(s)",
+  "commands.creator_toolkit.take.status.idle": "No take running; next is %s",
+  "commands.creator_toolkit.take.set": "Next take = %s",
+  "commands.creator_toolkit.take.already": "Take %s is already running",
+  "commands.creator_toolkit.take.none": "No take is running",
+
+  "commands.creator_toolkit.freeze.mobs.on": "Mobs frozen",
+  "commands.creator_toolkit.freeze.mobs.off": "Mobs released",
+  "commands.creator_toolkit.freeze.players.on": "Players frozen (%s)",
+  "commands.creator_toolkit.freeze.players.off": "Players released",
+  "commands.creator_toolkit.freeze.all.on": "Whole game frozen (vanilla tick freeze)",
+  "commands.creator_toolkit.freeze.all.off": "Whole game running again",
+  "commands.creator_toolkit.freeze.status": "Freeze - mobs: %s  players: %s  all: %s",
+
+  "commands.creator_toolkit.wave.spawned": "Spawned %s %s in %s r=%s",
+  "commands.creator_toolkit.wave.cleared": "Cleared %s wave entities",
+  "commands.creator_toolkit.wave.unknown": "Unknown entity type '%s'",
+
+  "commands.creator_toolkit.arena.saved": "Arena '%s' saved (%s, %s entities)",
+  "commands.creator_toolkit.arena.too_big": "Arena is too large (%s)",
+  "commands.creator_toolkit.arena.reset": "Arena '%s' reset (%s removed, %s restored)",
+  "commands.creator_toolkit.arena.missing": "No arena named '%s'",
+  "commands.creator_toolkit.arena.deleted": "Arena '%s' deleted",
+  "commands.creator_toolkit.arena.list": "Arenas: %s",
+  "commands.creator_toolkit.arena.list.empty": "No arenas saved yet",
+  "commands.creator_toolkit.arena.wrong_dimension": "Arena '%s' was saved in %s, which is not loaded",
+
+  "commands.creator_toolkit.cam.saved": "Camera '%s' saved",
+  "commands.creator_toolkit.cam.gone": "Camera '%s' deleted",
+  "commands.creator_toolkit.cam.missing": "No camera named '%s'",
+  "commands.creator_toolkit.cam.failed": "Camera '%s' points at a dimension that is not loaded",
+  "commands.creator_toolkit.cam.list": "Cameras: %s",
+  "commands.creator_toolkit.cam.list.empty": "No cameras saved yet",
+
+  "commands.creator_toolkit.cheat.god": "God: %s",
+  "commands.creator_toolkit.cheat.fly": "Fly: %s",
+  "commands.creator_toolkit.cheat.heal": "Healed",
+  "commands.creator_toolkit.cheat.clear": "Inventory cleared",
+
+  "commands.creator_toolkit.hide.hud": "HUD hidden: %s",
+  "commands.creator_toolkit.hide.chat": "Chat hidden: %s",
+  "commands.creator_toolkit.hide.nametags": "Name tags hidden: %s",
+  "commands.creator_toolkit.hide.commands.on": "Silent mode ON - feedback moves to the action bar",
+  "commands.creator_toolkit.hide.commands.off": "Silent mode OFF",
+
+  "commands.creator_toolkit.tphere": "Teleported %s to you",
+  "commands.creator_toolkit.tphere.none": "No players matched"
 }

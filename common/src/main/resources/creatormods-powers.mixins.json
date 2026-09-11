@@ -3,7 +3,7 @@
   "minVersion": "0.8",
   "package": "dev.riftal.creator.features.powers.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
+  "mixins": ["PowersServerPlayerMixin"],
   "client": [],
   "server": [],
   "injectors": {

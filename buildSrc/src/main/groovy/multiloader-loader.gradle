@@ -37,6 +37,13 @@ processResources {
 tasks.named('javadoc', Javadoc).configure {
     dependsOn(configurations.commonJava)
     source(configurations.commonJava)
+    // `configurations.commonJava` resolves to the bare `common/src/main/java` DIRECTORY, so the
+    // Javadoc task expands it to *every* file underneath, not just the .java ones. The per-feature
+    // ASSETS.md files that CONTRACT.md §9 mandates at
+    // `common/src/main/java/dev/riftal/creator/features/<id>/ASSETS.md` then reach javac as source
+    // files and it aborts with `error: Illegal package name: ".../ASSETS.md"`. :common:javadoc is
+    // unaffected because the main source set already filters on **/*.java. Restore that filter.
+    include '**/*.java'
 }
 
 tasks.named('sourcesJar', Jar) {

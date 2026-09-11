@@ -1,4 +1,37 @@
 {
   "feature.creator_arsenal.name": "Arsenal",
-  "feature.creator_arsenal.description": "Signature weapons: a hammer, a scythe, a grapple and a storm bow, with custom projectiles."
+  "feature.creator_arsenal.description": "Signature weapons: a hammer, a scythe, a grapple and a storm bow, with custom projectiles.",
+
+  "itemGroup.creator_arsenal": "Creator Arsenal",
+
+  "item.creator_arsenal.grapple_blade": "Grapple Blade",
+  "item.creator_arsenal.grapple_blade.flavour": "A blade with a line in the hilt.",
+  "item.creator_arsenal.grapple_blade.desc": "Right-click: fire the hook. Pulls you to whatever it bites. Right-click again to cut the line.",
+
+  "item.creator_arsenal.storm_bow": "Storm Bow",
+  "item.creator_arsenal.storm_bow.flavour": "Strung with a live wire.",
+  "item.creator_arsenal.storm_bow.desc": "Full draw: the arrow calls lightning where it lands. 3-block blast, no fire.",
+
+  "item.creator_arsenal.gravity_hammer": "Gravity Hammer",
+  "item.creator_arsenal.gravity_hammer.flavour": "Heavy enough to argue with the ground.",
+  "item.creator_arsenal.gravity_hammer.desc": "Right-click: lift everything within 6 blocks, hang it, then slam it down. 8 second cooldown.",
+
+  "item.creator_arsenal.soul_scythe": "Soul Scythe",
+  "item.creator_arsenal.soul_scythe.flavour": "It keeps a little of everything it cuts.",
+  "item.creator_arsenal.soul_scythe.desc": "Hits heal 25% of the damage dealt. Always sweeps. Kills release a soul worth 2 absorption hearts.",
+
+  "subtitles.creator_arsenal.arsenal.hook_bite": "Grapple hook bites",
+  "subtitles.creator_arsenal.arsenal.slam_impact": "Gravity Hammer slams",
+  "subtitles.creator_arsenal.arsenal.soul_absorb": "Soul absorbed",
+
+  "entity.creator_arsenal.grapple_hook": "Grapple Hook",
+  "entity.creator_arsenal.storm_arrow": "Storm Arrow",
+
+  "commands.creator_arsenal.give": "Gave %s to %s",
+  "commands.creator_arsenal.give_all": "Gave %s weapons to %s",
+  "commands.creator_arsenal.unknown_weapon": "Unknown weapon '%s'. Options: %s",
+  "commands.creator_arsenal.cooldown_reset": "Arsenal cooldowns reset for %s",
+  "commands.creator_arsenal.hook_retract": "Retracted %s hook(s)",
+  "commands.creator_arsenal.slam_cancel": "Cancelled %s slam(s)",
+  "commands.creator_arsenal.players": "%s players"
 }

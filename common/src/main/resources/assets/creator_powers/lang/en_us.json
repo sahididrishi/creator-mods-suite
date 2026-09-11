@@ -1,4 +1,36 @@
 {
   "feature.creator_powers.name": "Power Kit",
-  "feature.creator_powers.description": "Player abilities on keybinds with cooldowns, a cooldown HUD row and server-validated activation."
+
+  "ability.creator_powers.dash": "Dash",
+  "ability.creator_powers.fire_burst": "Fire Burst",
+  "ability.creator_powers.ground_pound": "Ground Pound",
+  "ability.creator_powers.ender_pull": "Ender Pull",
+  "ability.creator_powers.shield_dome": "Shield Dome",
+  "ability.creator_powers.mob_freeze": "Mob Freeze",
+
+  "subtitles.creator_powers.ui.ability_ready": "Ability ready",
+
+  "key.categories.creator_powers": "Creator Mods: Power Kit",
+  "key.creator_powers.slot1": "Ability Slot 1",
+  "key.creator_powers.slot2": "Ability Slot 2",
+  "key.creator_powers.slot3": "Ability Slot 3",
+  "key.creator_powers.slot4": "Ability Slot 4",
+  "key.creator_powers.slot5": "Ability Slot 5",
+  "key.creator_powers.slot6": "Ability Slot 6",
+
+  "commands.creator_powers.granted": "Granted %s to %s player(s)",
+  "commands.creator_powers.granted_all": "Granted %s abilities across %s player(s)",
+  "commands.creator_powers.cleared": "Cleared powers for %s player(s)",
+  "commands.creator_powers.removed": "Removed %s from %s player(s)",
+  "commands.creator_powers.cooldown_reset_all": "Cooldowns reset for %s player(s)",
+  "commands.creator_powers.cooldown_reset": "%s cooldown reset for %s player(s)",
+  "commands.creator_powers.cooldown_set": "%s cooldown set to %s ticks",
+  "commands.creator_powers.cannot_use": "%s cannot be used right now",
+  "commands.creator_powers.list": "%s: %s",
+  "commands.creator_powers.list_empty": "%s has no powers",
+  "commands.creator_powers.ready": "ready",
+  "commands.creator_powers.ticks": "%st",
+  "commands.creator_powers.slots_full": "All %s slots are full; use /power remove first",
+  "commands.creator_powers.unknown_ability": "Unknown ability. Known: %s",
+  "commands.creator_powers.bad_hud_mode": "Unknown HUD mode '%s'; expected on, off, radial or linear"
 }

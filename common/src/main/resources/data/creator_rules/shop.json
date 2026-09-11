@@ -1,0 +1,17 @@
+{
+  "_comment": "Hearts shop catalogue for the hearts_currency rule. One heart costs two points of maximum health. At most 27 offers; a purchase may never take a player below one heart.",
+  "offers": [
+    { "item": "minecraft:netherite_sword", "count": 1, "hearts": 3 },
+    { "item": "minecraft:diamond_pickaxe", "count": 1, "hearts": 2 },
+    { "item": "minecraft:elytra", "count": 1, "hearts": 4 },
+    { "item": "minecraft:totem_of_undying", "count": 1, "hearts": 3 },
+    { "item": "minecraft:enchanted_golden_apple", "count": 2, "hearts": 2 },
+    { "item": "minecraft:diamond", "count": 8, "hearts": 1 },
+    { "item": "minecraft:ancient_debris", "count": 4, "hearts": 2 },
+    { "item": "minecraft:golden_carrot", "count": 16, "hearts": 1 },
+    { "item": "minecraft:ender_pearl", "count": 8, "hearts": 1 },
+    { "item": "minecraft:obsidian", "count": 16, "hearts": 1 },
+    { "item": "minecraft:tnt", "count": 16, "hearts": 1 },
+    { "item": "minecraft:beacon", "count": 1, "hearts": 5 }
+  ]
+}

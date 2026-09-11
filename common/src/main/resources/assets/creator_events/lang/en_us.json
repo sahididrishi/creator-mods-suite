@@ -1,4 +1,66 @@
 {
   "feature.creator_events.name": "Event Director",
-  "feature.creator_events.description": "Timed world events - blood moon, meteor shower, siege, lucky rain, void rise - that survive a relog."
+  "feature.creator_events.description": "Timed world events - blood moon, meteor shower, siege, lucky rain, void rise - that survive a relog.",
+
+  "itemGroup.creator_events": "Event Director",
+  "block.creator_events.lucky_rain": "Lucky Rain Block",
+  "entity.creator_events.meteor": "Meteor",
+
+  "event.creator_events.bloodmoon": "Blood Moon",
+  "event.creator_events.meteor": "Meteor",
+  "event.creator_events.siege": "Siege",
+  "event.creator_events.luckyrain": "Lucky Rain",
+  "event.creator_events.voidrise": "Void Rise",
+
+  "phase.creator_events.bloodmoon.rise": "rising",
+  "phase.creator_events.bloodmoon.night": "night",
+  "phase.creator_events.bloodmoon.fade": "dawn",
+  "phase.creator_events.meteor.countdown": "countdown",
+  "phase.creator_events.meteor.flight": "flight",
+  "phase.creator_events.meteor.impact": "impact",
+  "phase.creator_events.meteor.aftermath": "aftermath",
+  "phase.creator_events.siege.prepare": "preparing",
+  "phase.creator_events.siege.waves": "waves",
+  "phase.creator_events.siege.victory": "victory",
+  "phase.creator_events.luckyrain.rain": "raining",
+  "phase.creator_events.voidrise.rise": "rising",
+  "phase.creator_events.voidrise.hold": "holding",
+
+  "title.creator_events.meteor": "METEOR",
+  "title.creator_events.siege": "SIEGE",
+  "title.creator_events.siege.sub": "%s waves incoming",
+  "title.creator_events.wave": "WAVE %1$s/%2$s",
+  "title.creator_events.siege_repelled": "SIEGE REPELLED",
+
+  "bossbar.creator_events.siege": "SIEGE — Wave %1$s/%2$s",
+
+  "hud.creator_events.bloodmoon": "BLOOD MOON  until dawn",
+  "hud.creator_events.meteor": "METEOR  %s",
+  "hud.creator_events.siege": "SIEGE  WAVE %1$s/%2$s  (%3$s left)",
+  "hud.creator_events.luckyrain": "LUCKY RAIN  %s",
+  "hud.creator_events.voidrise": "VOID  y = %s ▲",
+  "hud.creator_events.void_rising": "▲ VOID RISING",
+
+  "commands.creator_events.started": "▶ %s started",
+  "commands.creator_events.stopped": "■ %s stopped",
+  "commands.creator_events.skipped": "⏭ %1$s → %2$s",
+  "commands.creator_events.skipped_end": "⏭ %s finished",
+  "commands.creator_events.timer": "⏱ phase ends in %s s",
+  "commands.creator_events.reloaded": "Event data reloaded",
+  "commands.creator_events.hud_on": "Event HUD shown",
+  "commands.creator_events.hud_off": "Event HUD hidden",
+  "commands.creator_events.list": "Events: %s",
+  "commands.creator_events.unknown": "Unknown event: %s",
+  "commands.creator_events.none": "No event is running",
+  "commands.creator_events.idle": "No event is running",
+  "commands.creator_events.idle_last": "Idle. Last event: %s",
+  "commands.creator_events.status": "%1$s · %2$s · %3$s in phase",
+  "commands.creator_events.status_waves": "  · wave %1$s/%2$s · %3$s alive",
+
+  "subtitles.creator_events.bloodmoon.drone": "A low drone rolls in",
+  "subtitles.creator_events.meteor.whistle": "Something screams out of the sky",
+  "subtitles.creator_events.meteor.impact": "Meteor impact",
+  "subtitles.creator_events.siege.horn": "A siege horn sounds",
+  "subtitles.creator_events.lucky.pop": "Lucky block bursts",
+  "subtitles.creator_events.void.hum": "The void hums"
 }

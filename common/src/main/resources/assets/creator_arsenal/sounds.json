@@ -1,0 +1,14 @@
+{
+  "arsenal.hook_bite": {
+    "subtitle": "subtitles.creator_arsenal.arsenal.hook_bite",
+    "sounds": [ "creator_arsenal:arsenal/hook_bite" ]
+  },
+  "arsenal.slam_impact": {
+    "subtitle": "subtitles.creator_arsenal.arsenal.slam_impact",
+    "sounds": [ "creator_arsenal:arsenal/slam_impact" ]
+  },
+  "arsenal.soul_absorb": {
+    "subtitle": "subtitles.creator_arsenal.arsenal.soul_absorb",
+    "sounds": [ "creator_arsenal:arsenal/soul_absorb" ]
+  }
+}
