@@ -3,6 +3,7 @@ package dev.riftal.creator.features.vault.gametest;
 import dev.riftal.creator.core.CreatorMods;
 import dev.riftal.creator.features.vault.VaultFeature;
 import dev.riftal.creator.features.vault.block.AltarState;
+import dev.riftal.creator.features.vault.block.AltarStateMachine;
 import dev.riftal.creator.features.vault.block.CursedAltarBlock;
 import dev.riftal.creator.features.vault.block.SealedChestBlock;
 import dev.riftal.creator.features.vault.block.entity.CursedAltarBlockEntity;
@@ -20,7 +21,6 @@ import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
@@ -51,9 +51,6 @@ public final class VaultGameTests {
 
     /** Sealed Chest position, three blocks from the altar. */
     public static final BlockPos CHEST = new BlockPos(4, 1, 7);
-
-    /** Ticks to wait before the Keeper must exist: the 60-tick charge plus slack. */
-    public static final int SUMMON_DEADLINE = 80;
 
     /** Smoke test: the feature survived the config filter and is live in this session. */
     public static void featureIsEnabled(GameTestHelper helper) {
@@ -141,18 +138,15 @@ public final class VaultGameTests {
         CursedAltarBlockEntity altar = altarAt(helper);
         helper.assertTrue(altar.activate(null), "a sealed altar must accept a key");
 
-        helper.runAtTickTime(SUMMON_DEADLINE, () -> {
-            VaultKeeper keeper = altar.resolveKeeper(helper.getLevel());
-            if (keeper == null) {
-                helper.fail("no Vault Keeper was summoned within " + SUMMON_DEADLINE + " ticks");
-                return;
-            }
-            keeper.kill();
-        });
-        helper.succeedWhen(() -> {
-            helper.assertBlockPresent(Blocks.CHEST, CHEST);
-            helper.assertBlockProperty(ALTAR, CursedAltarBlock.STATE, AltarState.SPENT);
-        });
+        VaultKeeper[] keeper = new VaultKeeper[1];
+        helper.startSequence()
+                .thenWaitUntil(() -> awaitSummonedKeeper(helper, altar, keeper))
+                .thenExecute(() -> keeper[0].kill())
+                .thenWaitUntil(() -> {
+                    helper.assertBlockPresent(Blocks.CHEST, CHEST);
+                    helper.assertBlockProperty(ALTAR, CursedAltarBlock.STATE, AltarState.SPENT);
+                })
+                .thenSucceed();
     }
 
     /**
@@ -164,22 +158,21 @@ public final class VaultGameTests {
         CursedAltarBlockEntity altar = altarAt(helper);
         helper.assertTrue(altar.activate(null), "a sealed altar must accept a key");
 
-        helper.runAtTickTime(SUMMON_DEADLINE, () -> {
-            VaultKeeper keeper = altar.resolveKeeper(helper.getLevel());
-            if (keeper == null) {
-                helper.fail("no Vault Keeper was summoned within " + SUMMON_DEADLINE + " ticks");
-                return;
-            }
-            helper.assertTrue(keeper.isPersistenceRequired(),
-                    "the Keeper must be persistent or it vanishes between takes");
-            helper.assertTrue(!keeper.removeWhenFarAway(4096.0D),
-                    "the Keeper must never despawn when the creator walks away");
-            helper.assertTrue(helper.absolutePos(ALTAR).equals(keeper.altarPos()),
-                    "expected the Keeper bound to " + helper.absolutePos(ALTAR)
-                            + ", got " + keeper.altarPos());
-            helper.killAllEntities();
-            helper.succeed();
-        });
+        VaultKeeper[] summoned = new VaultKeeper[1];
+        helper.startSequence()
+                .thenWaitUntil(() -> awaitSummonedKeeper(helper, altar, summoned))
+                .thenExecute(() -> {
+                    VaultKeeper keeper = summoned[0];
+                    helper.assertTrue(keeper.isPersistenceRequired(),
+                            "the Keeper must be persistent or it vanishes between takes");
+                    helper.assertTrue(!keeper.removeWhenFarAway(4096.0D),
+                            "the Keeper must never despawn when the creator walks away");
+                    helper.assertTrue(helper.absolutePos(ALTAR).equals(keeper.altarPos()),
+                            "expected the Keeper bound to " + helper.absolutePos(ALTAR)
+                                    + ", got " + keeper.altarPos());
+                    helper.killAllEntities();
+                })
+                .thenSucceed();
     }
 
     /**
@@ -390,21 +383,47 @@ public final class VaultGameTests {
      * retreat - was never pulled on. It is in {@code VaultKeeper#customServerAiStep} now, which
      * runs every tick whatever the Keeper is doing.
      *
-     * <p><b>Why this one force-loads a chunk.</b> {@code VaultKeeper.TETHER_RADIUS} is wider than
-     * any GameTest arena, so a Keeper kited past it necessarily lands outside the chunks
-     * {@code StructureUtils} force-loaded for this structure. Nothing holds a ticket out there, so
-     * the chunk never reaches {@code FullChunkStatus.ENTITY_TICKING}, and an entity in a chunk that
-     * is not entity-ticking is never ticked at all: {@code customServerAiStep} would not run once
-     * in the whole timeout and the Keeper would sit exactly where the teleport dropped it - a
-     * failure that says nothing about the tether. {@code ServerLevel#setChunkForced} loads the
-     * destination and adds a {@code TicketType.FORCED} ticket at
-     * {@code ChunkMap.FORCED_TICKET_LEVEL}, which is
-     * {@code ChunkLevel.byStatus(FullChunkStatus.ENTITY_TICKING)} - exactly the level the Keeper
-     * needs to be ticked.
+     * <p><b>Why the Keeper is kited straight up.</b> {@link VaultKeeper#TETHER_RADIUS} is wider
+     * than any GameTest arena, so a Keeper pushed past it horizontally leaves the chunks
+     * {@code StructureUtils} force-loaded for this structure - and an entity outside
+     * {@code FullChunkStatus.ENTITY_TICKING} is never ticked at all, so
+     * {@code customServerAiStep} never runs and the Keeper sits exactly where the teleport dropped
+     * it. That says nothing about the tether.
      *
-     * <p>The chunk is deliberately never unforced here: {@code GameTestRunner} clears every forced
-     * chunk in the level when the batch finishes, and unforcing it by hand could pull the ground
-     * out from under a neighbouring arena that happens to share it.
+     * <p>An earlier version of this test called {@code ServerLevel#setChunkForced} on the
+     * destination to buy a ticket out there. That is not enough, and it is what made this test go
+     * red on CI while it stayed green on every developer machine:
+     *
+     * <ul>
+     *   <li>{@code setChunkForced} loads the chunk to {@code FullChunkStatus.FULL} at once, but
+     *       the {@code TicketType.FORCED} ticket it adds at {@code ChunkMap.FORCED_TICKET_LEVEL}
+     *       ({@code ChunkLevel.byStatus(ENTITY_TICKING)}) only reaches the chunk when
+     *       {@code DistanceManager} next runs its updates - a tick or more later, and later still
+     *       on a busy machine.</li>
+     *   <li>Until then {@code PersistentEntitySectionManager} has that chunk down as
+     *       {@code Visibility.HIDDEN} and queued in {@code chunksToUnload}, so a Keeper teleported
+     *       into it is written out and {@code setRemoved(UNLOADED_TO_CHUNK)} by the next
+     *       {@code processUnloads()}.</li>
+     *   <li>The test's reference then points at a Keeper that has left the level and can never
+     *       tick again: "still 78 blocks from its altar after 0 ticks of its own", forever,
+     *       whatever the timeout. Which side of that race a run landed on came down to how many
+     *       ticks the ticket took to propagate - i.e. to how loaded the machine was.</li>
+     * </ul>
+     *
+     * <p>A {@code ChunkPos} has no y, so the fix is to kite the Keeper <em>up</em> instead: 78
+     * blocks straight above the altar is the arena's own chunk, force-loaded and entity-ticking
+     * for as long as this test runs, and it is still 78 blocks outside the tether because the
+     * tether is a plain 3D distance. Nothing here touches chunk loading.
+     *
+     * <p>Gravity is then switched off, which is not cosmetic: a falling Keeper drops back inside
+     * {@code TETHER_RADIUS} on its own in about 30 ticks, so a test that merely waited for it to
+     * come home would pass with the tether deleted. With {@code setNoGravity} it hovers where it
+     * was kited until something moves it, and the only thing that can is the tether.
+     *
+     * <p>The wait below therefore keys off the Keeper's own tick counter rather than off a tick
+     * number - nothing depends on how fast the machine runs - and the check itself lands on the
+     * first tick the Keeper gets, because {@code Mob#serverAiStep} calls
+     * {@code customServerAiStep} on every one of them.
      */
     public static void keeperIsTetheredEvenWhileChasingSomething(GameTestHelper helper) {
         buildRoom(helper);
@@ -419,34 +438,56 @@ public final class VaultGameTests {
         }
         keeper.bindToAltar(altar);
         keeper.setPersistenceRequired();
+        keeper.setNoGravity(true);   // or it simply falls home, tether or no tether - see javadoc
 
-        // Give it a target, exactly as a kiting player would, then drop it well past the tether.
+        // Give it a target, exactly as a kiting player would, then drop it well past the tether -
+        // straight up the shaft, so it never leaves this arena's chunk. See the javadoc.
         Player chased = helper.makeMockPlayer(GameType.SURVIVAL);
         keeper.setTarget(chased);
         double beyond = VaultKeeper.TETHER_RADIUS + 30.0D;
-        double kitedX = altar.getX() + 0.5D;
-        double kitedY = altar.getY() + 1.0D;
-        double kitedZ = altar.getZ() + 0.5D + beyond;
-        // See the javadoc: out there the Keeper is only ticked if something keeps the chunk loaded.
-        ChunkPos kitedChunk = new ChunkPos(BlockPos.containing(kitedX, kitedY, kitedZ));
-        level.setChunkForced(kitedChunk.x, kitedChunk.z, true);
-        keeper.teleportTo(kitedX, kitedY, kitedZ);
+        keeper.teleportTo(altar.getX() + 0.5D, altar.getY() + 1.0D + beyond, altar.getZ() + 0.5D);
+
         helper.assertTrue(keeper.getTarget() != null,
                 "the test only means anything while the Keeper has a target");
+        double kited = Math.sqrt(distanceSqrToAltar(keeper, altar));
+        helper.assertTrue(kited > VaultKeeper.TETHER_RADIUS,
+                "the Keeper has to start outside the tether; it was only " + Math.round(kited)
+                        + " blocks out");
+        helper.assertTrue(level.isPositionEntityTicking(keeper.blockPosition()),
+                "the kited Keeper must stand somewhere entity-ticking or it is never ticked at "
+                        + "all, and this test would be measuring the harness instead of the tether");
 
-        // Baseline so the failure message can tell "the tether never fired" from "the Keeper was
-        // never ticked", which look identical from the outside.
+        // Baseline, so a failure can tell "the tether never fired" from "the Keeper was never
+        // ticked" - which look identical from the outside.
         int ticksWhenKited = keeper.tickCount;
 
-        helper.succeedWhen(() -> {
-            double distance = Math.sqrt(keeper.distanceToSqr(
-                    altar.getX() + 0.5D, altar.getY() + 0.5D, altar.getZ() + 0.5D));
-            helper.assertTrue(distance <= VaultKeeper.TETHER_RADIUS,
-                    "the Keeper was still " + Math.round(distance) + " blocks from its altar after "
-                            + (keeper.tickCount - ticksWhenKited) + " ticks of its own; the tether "
-                            + "must fire while it has a target or it can be kited away");
-            keeper.discard();
-        });
+        helper.startSequence()
+                // Wait for the Keeper's first tick rather than for a tick number:
+                // ServerLevel#tickNonPassenger bumps tickCount and then calls tick(), so a
+                // counter that has moved means the whole tick - customServerAiStep included -
+                // has already run.
+                .thenWaitUntil(() -> {
+                    helper.assertTrue(!keeper.isRemoved(),
+                            "the Keeper left the level before it ever ticked");
+                    helper.assertTrue(keeper.tickCount > ticksWhenKited,
+                            "the Keeper has not been ticked once since it was kited, so this run "
+                                    + "cannot say anything about the tether yet");
+                })
+                // One of its own ticks is all the tether ever needs, so it is already home.
+                .thenExecute(() -> {
+                    int ticks = keeper.tickCount - ticksWhenKited;
+                    double distance = Math.sqrt(distanceSqrToAltar(keeper, altar));
+                    helper.assertTrue(distance <= VaultKeeper.TETHER_RADIUS,
+                            "the Keeper was still " + Math.round(distance)
+                                    + " blocks from its altar after " + ticks + " tick(s) of its "
+                                    + "own; the tether must fire while it has a target or it can "
+                                    + "be kited away");
+                    helper.assertTrue(keeper.getTarget() != null,
+                            "the Keeper dropped its target before the tether fired - that is the "
+                                    + "one case this test exists to cover");
+                    keeper.discard();
+                })
+                .thenSucceed();
     }
 
     /**
@@ -462,30 +503,31 @@ public final class VaultGameTests {
         CursedAltarBlockEntity altar = altarAt(helper);
         helper.assertTrue(altar.activate(null), "a sealed altar must accept a key");
 
-        helper.runAtTickTime(SUMMON_DEADLINE, () -> {
-            VaultKeeper bound = altar.resolveKeeper(level);
-            if (bound == null) {
-                helper.fail("no Vault Keeper was summoned within " + SUMMON_DEADLINE + " ticks");
-                return;
-            }
-            // A second Keeper that thinks it belongs to this altar - the shape every orphan takes.
-            VaultKeeper stray = VaultFeature.VAULT_KEEPER.get()
-                    .spawn(level, helper.absolutePos(new BlockPos(1, 1, 1)), MobSpawnType.COMMAND);
-            if (stray == null) {
-                helper.fail("could not spawn the stray Vault Keeper");
-                return;
-            }
-            stray.bindToAltar(helper.absolutePos(ALTAR));
-            stray.kill();
-
-            helper.runAfterDelay(10L, () -> {
-                helper.assertBlockPresent(VaultFeature.SEALED_CHEST.get(), CHEST);
-                helper.assertBlockProperty(ALTAR, CursedAltarBlock.STATE, AltarState.ACTIVE);
-                helper.assertTrue(bound.isAlive(), "the bound Keeper should be untouched");
-                helper.killAllEntities();
-                helper.succeed();
-            });
-        });
+        VaultKeeper[] bound = new VaultKeeper[1];
+        helper.startSequence()
+                .thenWaitUntil(() -> awaitSummonedKeeper(helper, altar, bound))
+                .thenExecute(() -> {
+                    // A second Keeper that thinks it belongs to this altar - the shape every
+                    // orphan takes.
+                    VaultKeeper stray = VaultFeature.VAULT_KEEPER.get().spawn(
+                            level, helper.absolutePos(new BlockPos(1, 1, 1)), MobSpawnType.COMMAND);
+                    if (stray == null) {
+                        helper.fail("could not spawn the stray Vault Keeper");
+                        return;
+                    }
+                    stray.bindToAltar(helper.absolutePos(ALTAR));
+                    stray.kill();
+                })
+                // A negative, so it does need a fixed wait: long enough for the altar's 20-tick
+                // poll to have run at least once with the stray already dead.
+                .thenIdle(25)
+                .thenExecute(() -> {
+                    helper.assertBlockPresent(VaultFeature.SEALED_CHEST.get(), CHEST);
+                    helper.assertBlockProperty(ALTAR, CursedAltarBlock.STATE, AltarState.ACTIVE);
+                    helper.assertTrue(bound[0].isAlive(), "the bound Keeper should be untouched");
+                    helper.killAllEntities();
+                })
+                .thenSucceed();
     }
 
     /**
@@ -617,6 +659,28 @@ public final class VaultGameTests {
     }
 
     // ------------------------------------------------------------------ setup
+
+    /**
+     * Sequence step that waits for the altar to finish its charge and hand over its Keeper, parking
+     * it in {@code out[0]}.
+     *
+     * <p>A wait rather than the {@code runAtTickTime(80, ...)} these tests used to do. Sampling
+     * once at a fixed tick asserts a schedule the test does not own: it fails outright if the
+     * charge is ever retuned, and it reads as flakiness rather than as the off-by-one it is. The
+     * only thing worth asserting here is that the Keeper does turn up, so this retries every tick
+     * and the test's own {@code timeoutTicks} is the deadline.
+     */
+    private static void awaitSummonedKeeper(GameTestHelper helper, CursedAltarBlockEntity altar,
+                                            VaultKeeper[] out) {
+        out[0] = altar.resolveKeeper(helper.getLevel());
+        helper.assertTrue(out[0] != null, "the altar has not produced its Vault Keeper yet (its "
+                + "charge is " + AltarStateMachine.CHARGE_TICKS + " ticks)");
+    }
+
+    /** Distance squared from the Keeper to the centre of the altar block it is bound to. */
+    private static double distanceSqrToAltar(VaultKeeper keeper, BlockPos altar) {
+        return keeper.distanceToSqr(altar.getX() + 0.5D, altar.getY() + 0.5D, altar.getZ() + 0.5D);
+    }
 
     private static void buildRoom(GameTestHelper helper) {
         helper.setBlock(ALTAR, VaultFeature.CURSED_ALTAR.get());
